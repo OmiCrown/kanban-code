@@ -1079,6 +1079,7 @@ struct ContentView: View {
         case .confirmDeleteChannel(let name): return "Delete #\(name)?"
         case .confirmArchiveWithMachine: return "Archive and destroy machine?"
         case .confirmDestroyMachine: return "Destroy machine?"
+        case .confirmResumeRunning: return "Already running in a terminal"
         }
     }
 
@@ -1137,6 +1138,12 @@ struct ContentView: View {
                 dismissDialog()
             }
             .keyboardShortcut(.defaultAction)
+        case .confirmResumeRunning(let cardId):
+            Button("Cancel", role: .cancel) { dismissDialog() }
+            Button("Resume anyway", role: .destructive) {
+                dismissDialog()
+                resumeCardIgnoringRunning(cardId: cardId)
+            }
         case .confirmFork(let cardId):
             Button("Cancel", role: .cancel) { dismissDialog() }
             if store.state.cards.first(where: { $0.id == cardId })?.link.worktreeLink != nil {
@@ -1274,6 +1281,8 @@ struct ContentView: View {
             Text("This removes the channel and its membership metadata. Messages in \(name).jsonl are left on disk so you can recover them manually if needed.")
         case .confirmArchiveWithMachine(let cardId):
             Text("Are you sure? This destroys the boxd machine \(remoteMachineName(cardId: cardId)) and everything on it that was not pushed. The conversation stays on this Mac.")
+        case .confirmResumeRunning:
+            Text("This session is still running in another terminal window. Resuming here starts a second Claude on the same conversation, and both write to one transcript.")
         case .confirmDestroyMachine(let cardId):
             Text("Destroy the boxd machine \(remoteMachineName(cardId: cardId))? Files on the machine that were not pushed are lost. The conversation stays on this Mac and can continue locally.")
         }

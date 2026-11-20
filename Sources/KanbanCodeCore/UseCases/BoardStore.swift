@@ -26,6 +26,8 @@ public enum DialogState: Equatable, Sendable {
     case confirmArchiveWithMachine(cardId: String)
     /// Destroy the boxd machine of a card and keep the card.
     case confirmDestroyMachine(cardId: String)
+    /// Resume a card whose session still runs in another terminal window.
+    case confirmResumeRunning(cardId: String)
 }
 
 // MARK: - AppState

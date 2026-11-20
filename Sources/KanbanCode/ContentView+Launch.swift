@@ -206,7 +206,27 @@ extension ContentView {
         }
     }
 
+    /// Resume, unless the session still runs in another terminal window (an
+    /// imported iTerm instance): then the user is asked first.
     func resumeCard(cardId: String) {
+        guard let sessionId = store.state.links[cardId]?.sessionLink?.sessionId else {
+            resumeCardIgnoringRunning(cardId: cardId)
+            return
+        }
+        let profiles = Settings.readEffectiveClaudeProfiles()
+        Task {
+            let running = await Task.detached(priority: .userInitiated) {
+                RunningSessionReader.runningSessionIds(profiles: profiles)
+            }.value
+            if running.contains(sessionId) {
+                presentDialog(.confirmResumeRunning(cardId: cardId))
+            } else {
+                resumeCardIgnoringRunning(cardId: cardId)
+            }
+        }
+    }
+
+    func resumeCardIgnoringRunning(cardId: String) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
         let sessionId = card.link.sessionLink?.sessionId ?? card.link.id
         // For worktree cards, cd into the worktree — that's where Claude stored the session data.
