@@ -36,6 +36,8 @@ struct NewTaskDialog: View {
     @State private var customPath = ""
     @State private var command = ""
     @State private var commandEdited = false
+    /// Every command the form made itself; a field with any other text was edited by the user.
+    @State private var generatedCommands = GeneratedText()
     @State private var worktreeBranch = ""
     @AppStorage("startTaskImmediately") private var startImmediately = true
     @State private var createWorktree = true
@@ -111,7 +113,7 @@ struct NewTaskDialog: View {
                     }
                 }
                 .onChange(of: selectedServiceId) {
-                    if !commandEdited { command = commandPreview }
+                    refreshCommand()
                 }
             }
 
@@ -171,11 +173,11 @@ struct NewTaskDialog: View {
                     }
                     CommandTextEditor(text: $command, onSubmit: submitForm, onEscape: { isPresented = false })
                         .font(.app(.caption).monospaced())
-                        .frame(minHeight: 36, maxHeight: 80)
+                        .frame(minHeight: 36, maxHeight: 120)
                         .padding(4)
                         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
                         .onChange(of: command) {
-                            if command != commandPreview {
+                            if generatedCommands.isEdit(command) {
                                 commandEdited = true
                             }
                         }
@@ -214,7 +216,7 @@ struct NewTaskDialog: View {
                 selectedAssistant = first
             }
             applyProjectDefaults()
-            command = commandPreview
+            applyPreviewToCommand()
             titleFocused = true
         }
         .task { await reloadServices() }
@@ -222,33 +224,33 @@ struct NewTaskDialog: View {
             Task { await reloadServices() }
         }
         .onChange(of: prompt) {
-            if !commandEdited { command = commandPreview }
+            refreshCommand()
         }
         .onChange(of: createWorktree) {
             if let path = resolvedProjectPath {
                 UserDefaults.standard.set(createWorktree, forKey: "createWorktree_\(path)")
             }
-            if !commandEdited { command = commandPreview }
+            refreshCommand()
         }
         .onChange(of: worktreeBranch) {
-            if !commandEdited { command = commandPreview }
+            refreshCommand()
         }
         .onChange(of: runRemotely) {
             rememberRunRemotely()
-            if !commandEdited { command = commandPreview }
+            refreshCommand()
         }
         .onChange(of: machineChoice) {
-            if !commandEdited { command = commandPreview }
+            refreshCommand()
         }
         .onChange(of: selectedProjectPath) {
             applyProjectDefaults()
-            if !commandEdited { command = commandPreview }
+            refreshCommand()
         }
         .onChange(of: dangerouslySkipPermissions) {
-            if !commandEdited { command = commandPreview }
+            refreshCommand()
         }
         .onChange(of: selectedAssistantRaw) {
-            if !commandEdited { command = commandPreview }
+            refreshCommand()
             // Reset to default service for the newly selected assistant
             selectedServiceId = defaultAPIServiceIds[selectedAssistant.rawValue]
         }
@@ -335,7 +337,7 @@ struct NewTaskDialog: View {
         if !currentStillValid {
             selectedServiceId = loaded.defaultAPIServiceIds[selectedAssistant.rawValue]
         }
-        if !commandEdited { command = commandPreview }
+        refreshCommand()
     }
 
     private func submitForm() {
@@ -417,6 +419,18 @@ struct NewTaskDialog: View {
     /// True when the session runs on a machine: an ssh machine or boxd.
     private var runsOnBoxd: Bool {
         remoteMode.runsOnMachines && effectiveRunRemotely
+    }
+
+    /// Puts the current preview in the field, and remembers it as the form's own.
+    private func applyPreviewToCommand() {
+        let preview = commandPreview
+        generatedCommands.record(preview)
+        command = preview
+    }
+
+    /// Follows the options while the user has not edited the command.
+    private func refreshCommand() {
+        if !commandEdited { applyPreviewToCommand() }
     }
 
     private var commandPreview: String {

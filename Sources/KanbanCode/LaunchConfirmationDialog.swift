@@ -36,6 +36,8 @@ struct LaunchConfirmationDialog: View {
     @State private var images: [ImageAttachment]
     @State private var command: String = ""
     @State private var commandEdited: Bool = false
+    /// Every command the form made itself; a field with any other text was edited by the user.
+    @State private var generatedCommands = GeneratedText()
     @State private var worktreeBranch: String = ""
     @State private var createWorktree: Bool
     @State private var runRemotely: Bool
@@ -126,7 +128,7 @@ struct LaunchConfirmationDialog: View {
                             }
                         }
                         .onChange(of: selectedServiceId) {
-                            if !commandEdited { command = commandPreview }
+                            refreshCommand()
                         }
                     }
 
@@ -214,11 +216,11 @@ struct LaunchConfirmationDialog: View {
                         }
                         CommandTextEditor(text: $command, onSubmit: submitForm, onEscape: { isPresented = false })
                             .font(.app(.caption).monospaced())
-                            .frame(minHeight: 36, maxHeight: 80)
+                            .frame(minHeight: 36, maxHeight: 120)
                             .padding(4)
                             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
                             .onChange(of: command) {
-                                if command != commandPreview {
+                                if generatedCommands.isEdit(command) {
                                     commandEdited = true
                                 }
                             }
@@ -247,31 +249,31 @@ struct LaunchConfirmationDialog: View {
         .frame(width: 500)
         .frame(maxHeight: 700)
         .onAppear {
-            command = commandPreview
+            applyPreviewToCommand()
         }
         .task { await reloadServices() }
         .onReceive(NotificationCenter.default.publisher(for: .kanbanCodeSettingsChanged)) { _ in
             Task { await reloadServices() }
         }
         .onChange(of: prompt) {
-            if !commandEdited { command = commandPreview }
+            refreshCommand()
         }
         .onChange(of: runRemotely) {
             rememberRunRemotely()
-            if !commandEdited { command = commandPreview }
+            refreshCommand()
         }
         .onChange(of: machineChoice) {
-            if !commandEdited { command = commandPreview }
+            refreshCommand()
         }
         .onChange(of: createWorktree) {
             UserDefaults.standard.set(createWorktree, forKey: "createWorktree_\(projectPath)")
-            if !commandEdited { command = commandPreview }
+            refreshCommand()
         }
         .onChange(of: worktreeBranch) {
-            if !commandEdited { command = commandPreview }
+            refreshCommand()
         }
         .onChange(of: dangerouslySkipPermissions) {
-            if !commandEdited { command = commandPreview }
+            refreshCommand()
         }
     }
 
@@ -363,7 +365,7 @@ struct LaunchConfirmationDialog: View {
                 ? loaded.defaultAPIServiceIds[assistant.rawValue]
                 : nil
         }
-        if !commandEdited { command = commandPreview }
+        refreshCommand()
     }
 
     private func submitForm() {
@@ -403,6 +405,18 @@ struct LaunchConfirmationDialog: View {
     /// True when the session runs on a machine: an ssh machine or boxd.
     private var runsOnBoxd: Bool {
         remoteMode.runsOnMachines && effectiveRunRemotely
+    }
+
+    /// Puts the current preview in the field, and remembers it as the form's own.
+    private func applyPreviewToCommand() {
+        let preview = commandPreview
+        generatedCommands.record(preview)
+        command = preview
+    }
+
+    /// Follows the options while the user has not edited the command.
+    private func refreshCommand() {
+        if !commandEdited { applyPreviewToCommand() }
     }
 
     private var commandPreview: String {

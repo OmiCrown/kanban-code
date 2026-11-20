@@ -51,6 +51,29 @@ struct CommandTextEditor: NSViewRepresentable {
         }
     }
 
+    /// The editor is as tall as the command it holds, between one line of
+    /// room and `maxHeight`: a scroll view has no height of its own, so it
+    /// stayed at the dialog's minimum and hid the end of a long command (the
+    /// branch name after `--worktree`) behind a scroller.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        guard let textView = nsView.documentView as? NSTextView else { return nil }
+        let width = proposal.width ?? 400
+        let inset = textView.textContainerInset
+        let padding = textView.textContainer?.lineFragmentPadding ?? 5
+        let textWidth = max(width - 2 * inset.width - 2 * padding, 40)
+        let font = textView.font ?? NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        let measured = NSAttributedString(string: text.isEmpty ? " " : text, attributes: [.font: font])
+            .boundingRect(
+                with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading]
+            )
+        let height = ceil(measured.height) + 2 * inset.height + font.pointSize
+        return CGSize(width: width, height: min(max(height, Self.minHeight), Self.maxHeight))
+    }
+
+    static let minHeight: CGFloat = 36
+    static let maxHeight: CGFloat = 120
+
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: CommandTextEditor
 
