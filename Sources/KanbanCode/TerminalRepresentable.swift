@@ -555,6 +555,18 @@ final class BatchedTerminalView: LocalProcessTerminalView {
 
 // MARK: - Terminal process cache
 
+extension TerminalView {
+    /// Hands one wheel event to the program in the terminal as mouse reports,
+    /// although the view keeps its own selection (`allowMouseReporting` off).
+    @MainActor
+    func passWheelToProgram(_ event: NSEvent) {
+        let before = allowMouseReporting
+        allowMouseReporting = true
+        defer { allowMouseReporting = before }
+        scrollWheel(with: event)
+    }
+}
+
 /// Caches tmux terminal views across drawer close/open cycles.
 /// When the drawer closes, terminals are detached from the view hierarchy but kept alive.
 /// When reopened, the cached terminal is reparented — no new tmux attach needed,
@@ -742,7 +754,11 @@ final class TerminalCache {
             // is dropped rather than sent into copy-mode.
             if !inCopyMode, !AppServices.tmux.isRemote(session) {
                 switch self?.paneScrollMode(of: session) {
-                case .forwardToProgram: return event
+                case .forwardToProgram:
+                    // The view keeps the mouse for its own selection, so the
+                    // wheel is passed on by hand.
+                    self?.terminals[session]?.passWheelToProgram(event)
+                    return nil
                 case nil: return nil
                 case .tmuxCopyMode: break
                 }

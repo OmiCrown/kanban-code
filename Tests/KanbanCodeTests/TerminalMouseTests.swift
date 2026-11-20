@@ -3,6 +3,8 @@ import Foundation
 import AppKit
 import SwiftTerm
 
+@testable import KanbanCode
+
 private final class SentRecorder: TerminalViewDelegate {
     var sent: [UInt8] = []
     var text: String { String(decoding: sent, as: UTF8.self) }
@@ -56,6 +58,20 @@ struct TerminalMouseWheelTests {
     func wheelStaysWhenNotAllowed() {
         let (view, recorder) = view(feeding: Self.rushStart)
         view.allowMouseReporting = false
+        view.scrollWheel(with: wheel(lines: 3))
+        #expect(recorder.sent.isEmpty)
+    }
+
+    /// Claude's fullscreen mode scrolls on these reports, while the view keeps
+    /// the mouse for its own selection the rest of the time.
+    @Test("A view that keeps the mouse passes one wheel event on, then keeps it again")
+    func wheelPassedOnForOneEvent() {
+        let (view, recorder) = view(feeding: Self.rushStart)
+        view.allowMouseReporting = false
+        view.passWheelToProgram(wheel(lines: 3))
+        #expect(recorder.text.components(separatedBy: "\u{1b}[<64;").count - 1 == 3)
+        #expect(!view.allowMouseReporting)
+        recorder.sent = []
         view.scrollWheel(with: wheel(lines: 3))
         #expect(recorder.sent.isEmpty)
     }
