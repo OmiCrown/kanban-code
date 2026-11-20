@@ -768,6 +768,9 @@ public final class AppState: @unchecked Sendable {
 public enum Action: Sendable {
     // UI actions
     case createManualTask(Link)
+    /// Cards for sessions the user picked in the Import dialog. A session that
+    /// already has a card gets none.
+    case importSessions([Link])
     case createTerminal(cardId: String)
     case addExtraTerminal(cardId: String, sessionName: String)
     case launchCard(cardId: String, prompt: String, projectPath: String, worktreeName: String?, runRemotely: Bool, commandOverride: String?)
@@ -1220,6 +1223,20 @@ public enum Reducer {
         case .createManualTask(let link):
             state.links[link.id] = link
             return [.upsertLink(link)]
+
+        case .importSessions(let links):
+            var held = Set(state.links.values.filter { !$0.isTombstone }.compactMap { $0.sessionLink?.sessionId })
+            var added = 0
+            for link in links {
+                guard let sessionId = link.sessionLink?.sessionId, held.insert(sessionId).inserted else { continue }
+                state.links[link.id] = link
+                // The user picked this session, so an earlier deletion no longer hides it.
+                state.deletedSessionIds.remove(sessionId)
+                added += 1
+            }
+            guard added > 0 else { return [] }
+            KanbanCodeLog.info("store", "Imported \(added) sessions as cards")
+            return [.persistLinks(Array(state.links.values))]
 
         case .createTerminal(let cardId):
             guard var link = state.links[cardId] else { return [] }
