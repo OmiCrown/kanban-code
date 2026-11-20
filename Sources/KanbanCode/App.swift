@@ -109,6 +109,20 @@ struct KanbanCodeApp: App {
     }
 }
 
+/// What a close request on the main window means.
+enum WindowCloseAction: Equatable {
+    case closeTerminalTab
+    case hideWindow
+
+    /// The red button is a mouse click and means "put the window away". ⌘W is a key press and closes the terminal tab.
+    static func forEvent(_ type: NSEvent.EventType?) -> WindowCloseAction {
+        switch type {
+        case .leftMouseUp, .leftMouseDown: .hideWindow
+        default: .closeTerminalTab
+        }
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUserNotificationCenterDelegate, @unchecked Sendable {
     private var terminationReplyPending = false
     private var quitConfirmationPanel: NSPanel?
@@ -244,9 +258,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, UNUs
         )
     }
 
-    /// Prevent Cmd+W from closing the single window — close terminal tab instead.
+    /// Cmd+W closes the terminal tab, never the single window. The red button
+    /// puts the window away: the app keeps running, as `applicationShouldTerminateAfterLastWindowClosed`
+    /// says, and a click on its Dock icon (or the tray's Open) brings it back.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        NotificationCenter.default.post(name: .kanbanCloseTerminalTab, object: nil)
+        switch WindowCloseAction.forEvent(NSApp.currentEvent?.type) {
+        case .closeTerminalTab:
+            NotificationCenter.default.post(name: .kanbanCloseTerminalTab, object: nil)
+        case .hideWindow:
+            sender.orderOut(nil)
+        }
+        return false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag, let window = NSApp.windows.first(where: { $0.canBecomeMain }) else { return true }
+        window.makeKeyAndOrderFront(nil)
         return false
     }
 
