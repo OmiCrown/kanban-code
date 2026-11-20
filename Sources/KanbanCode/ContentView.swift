@@ -67,25 +67,6 @@ private struct SubagentManagerTarget: Identifiable, Equatable {
     var id: String { parentId }
 }
 
-private enum DrawerNavigationTarget: Equatable {
-    case card(String)
-    case channel(String)
-    case dm(ChannelParticipant)
-
-    init?(_ drawer: Drawer) {
-        switch drawer {
-        case .none:
-            return nil
-        case .card(let id):
-            self = .card(id)
-        case .channel(let name):
-            self = .channel(name)
-        case .dm(let participant):
-            self = .dm(participant)
-        }
-    }
-}
-
 struct ContentView: View {
     // Properties are internal (not private) to allow extensions in separate files
     @State var store: BoardStore
@@ -128,9 +109,7 @@ struct ContentView: View {
     @State var channelDraftImages: [String: [Data]] = [:]
     @State var dmDraftImages: [String: [Data]] = [:]
     @State var activeDialog: DialogState = .none
-    @State private var navigationBackStack: [DrawerNavigationTarget] = []
-    @State private var navigationForwardStack: [DrawerNavigationTarget] = []
-    @State private var suppressNextNavigationRecord = false
+    @State private var navigationHistory = NavigationHistory()
     @State private var channelFocusRequestToken = 0
     // showSearch and isExpandedDetail live in AppState (store.state.paletteOpen / detailExpanded)
     var showSearch: Bool {
@@ -764,8 +743,8 @@ struct ContentView: View {
                 }
                 selectedCardIdPersisted = store.state.selectedCardId ?? ""
             }
-            .onChange(of: store.state.openDrawer) { oldValue, newValue in
-                recordNavigationChange(from: oldValue, to: newValue)
+            .onChange(of: store.state.openDrawer) { _, newValue in
+                recordNavigationChange(to: newValue)
             }
             .onChange(of: store.state.detailExpanded) {
                 if !store.state.detailExpanded {
@@ -1956,11 +1935,11 @@ struct ContentView: View {
     // MARK: - Navigation History
 
     private var canNavigateBack: Bool {
-        navigationBackStack.contains(where: isNavigationTargetAvailable)
+        navigationHistory.backTarget(isAvailable: isNavigationTargetAvailable) != nil
     }
 
     private var canNavigateForward: Bool {
-        navigationForwardStack.contains(where: isNavigationTargetAvailable)
+        navigationHistory.forwardTarget(isAvailable: isNavigationTargetAvailable) != nil
     }
 
     private var navigationHistoryControls: some View {
@@ -1983,50 +1962,24 @@ struct ContentView: View {
         }
     }
 
-    private func recordNavigationChange(from oldDrawer: Drawer, to newDrawer: Drawer) {
-        if suppressNextNavigationRecord {
-            suppressNextNavigationRecord = false
-            return
-        }
-
-        let oldTarget = DrawerNavigationTarget(oldDrawer)
-        let newTarget = DrawerNavigationTarget(newDrawer)
-        guard oldTarget != newTarget else { return }
-
-        if let oldTarget {
-            navigationBackStack.append(oldTarget)
-            if navigationBackStack.count > 100 {
-                navigationBackStack.removeFirst(navigationBackStack.count - 100)
-            }
-        }
-        navigationForwardStack.removeAll()
+    /// The drawer changed. A change the arrows made equals the entry under the
+    /// history's cursor, so it is not recorded a second time.
+    private func recordNavigationChange(to newDrawer: Drawer) {
+        navigationHistory.visit(DrawerNavigationTarget(newDrawer))
     }
 
     private func navigateBack() {
-        while let target = navigationBackStack.popLast() {
-            guard isNavigationTargetAvailable(target) else { continue }
-            if let current = DrawerNavigationTarget(store.state.openDrawer) {
-                navigationForwardStack.append(current)
-            }
-            applyNavigationTarget(target)
-            return
-        }
+        guard let target = navigationHistory.goBack(isAvailable: isNavigationTargetAvailable) else { return }
+        applyNavigationTarget(target)
     }
 
     private func navigateForward() {
-        while let target = navigationForwardStack.popLast() {
-            guard isNavigationTargetAvailable(target) else { continue }
-            if let current = DrawerNavigationTarget(store.state.openDrawer) {
-                navigationBackStack.append(current)
-            }
-            applyNavigationTarget(target)
-            return
-        }
+        guard let target = navigationHistory.goForward(isAvailable: isNavigationTargetAvailable) else { return }
+        applyNavigationTarget(target)
     }
 
     private func applyNavigationTarget(_ target: DrawerNavigationTarget) {
         guard DrawerNavigationTarget(store.state.openDrawer) != target else { return }
-        suppressNextNavigationRecord = true
 
         switch target {
         case .card(let id):
@@ -2045,7 +1998,10 @@ struct ContentView: View {
     private func isNavigationTargetAvailable(_ target: DrawerNavigationTarget) -> Bool {
         switch target {
         case .card(let id):
-            return store.state.links[id] != nil
+            // With a project picked, the arrows stay in that project.
+            guard let link = store.state.links[id] else { return false }
+            guard let project = store.state.selectedProjectPath else { return true }
+            return link.projectPath == project
         case .channel(let name):
             return store.state.channels.contains { $0.name == name }
         case .dm:
