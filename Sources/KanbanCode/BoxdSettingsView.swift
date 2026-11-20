@@ -43,6 +43,7 @@ struct BoxdSettingsView: View {
     @State private var inactivityMinutes = BoxdSettings.defaultInactivityTimeoutSeconds / 60
     /// Edited in the Assistants tab; carried through the save unchanged.
     @State private var claudeOAuthToken = ""
+    @State private var syncLogins = true
     @State private var sshMachines: [SshMachine] = []
     @State private var sshReachability: [String: Bool] = [:]
 
@@ -68,6 +69,7 @@ struct BoxdSettingsView: View {
         }
         projectSection
             .task(id: mode) { await load() }
+        loginsSection
     }
 
     @ViewBuilder
@@ -228,6 +230,16 @@ struct BoxdSettingsView: View {
         }
     }
 
+    private var loginsSection: some View {
+        Section("Logins") {
+            Toggle("Sync this Mac's Claude and Codex logins to the machines", isOn: $syncLogins)
+                .onChange(of: syncLogins) { scheduleSave() }
+            Text("Each machine gets this Mac's login, and a login a machine refreshed comes back. To tell which Claude account a login belongs to, Kanban Code sends its token to api.anthropic.com. Off, no login leaves this Mac and a machine keeps the login it already has.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
     private var projectSection: some View {
         Section("Project") {
             if mode == .boxd {
@@ -297,6 +309,7 @@ struct BoxdSettingsView: View {
         copyGlobsText = boxd.copyGlobs.joined(separator: "\n")
         inactivityMinutes = max(Self.minimumMinutes, boxd.inactivityTimeoutSeconds / 60)
         claudeOAuthToken = boxd.claudeOAuthToken
+        syncLogins = boxd.syncLogins
         sshMachines = boxd.sshMachines
         loaded = true
         Task { await probeSshMachines() }
@@ -344,7 +357,8 @@ struct BoxdSettingsView: View {
                     target: $0.target.trimmingCharacters(in: .whitespacesAndNewlines),
                     repoRoot: $0.repoRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? SshMachine.defaultRepoRoot : $0.repoRoot.trimmingCharacters(in: .whitespacesAndNewlines))
-            }
+            },
+            syncLogins: syncLogins
         )
     }
 

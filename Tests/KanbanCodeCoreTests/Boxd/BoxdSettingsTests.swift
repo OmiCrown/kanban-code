@@ -229,4 +229,21 @@ struct BoxdSettingsTests {
         let absent = try decode(#"{"remoteMode":"boxd","boxd":{"snapshotName":"base"}}"#)
         #expect(absent.boxd?.claudeOAuthToken == "")
     }
+
+    @Test("Login sync is on by default and when the key is absent or unreadable")
+    func syncLoginsDefaultsToOn() throws {
+        #expect(BoxdSettings().syncLogins == true)
+        let absent = try decode(#"{"remoteMode":"boxd","boxd":{"snapshotName":"base"}}"#)
+        #expect(absent.boxd?.syncLogins == true)
+        let unreadable = try decode(#"{"remoteMode":"boxd","boxd":{"syncLogins":"yes"}}"#)
+        #expect(unreadable.boxd?.syncLogins == true)
+    }
+
+    @Test("Turning login sync off round-trips")
+    func syncLoginsOffRoundTrips() throws {
+        var settings = Settings()
+        settings.boxd = BoxdSettings(syncLogins: false)
+        let decoded = try JSONDecoder().decode(Settings.self, from: try JSONEncoder().encode(settings))
+        #expect(decoded.boxd?.syncLogins == false)
+    }
 }

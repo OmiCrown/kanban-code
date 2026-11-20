@@ -239,6 +239,11 @@ public struct BoxdSettings: Codable, Sendable, Equatable {
     /// Always-on machines reached over ssh. Cards run on them the way they
     /// run on a boxd machine, several cards on one machine.
     public var sshMachines: [SshMachine]
+    /// Keep this Mac's Claude and Codex logins equal to the copies on the
+    /// machines: the Mac's login goes to each machine and a login a machine
+    /// refreshed comes back. The sync also asks Anthropic's profile endpoint
+    /// which account a Claude login belongs to. Off, no login leaves this Mac.
+    public var syncLogins: Bool
 
     public static let defaultSnapshotName = "kanban-code-base"
     public static let defaultSourceMachine = "good-wolf"
@@ -282,7 +287,8 @@ public struct BoxdSettings: Codable, Sendable, Equatable {
         copyGlobs: [String] = BoxdSettings.defaultCopyGlobs,
         inactivityTimeoutSeconds: Int = BoxdSettings.defaultInactivityTimeoutSeconds,
         claudeOAuthToken: String = "",
-        sshMachines: [SshMachine] = []
+        sshMachines: [SshMachine] = [],
+        syncLogins: Bool = true
     ) {
         self.snapshotName = snapshotName
         self.sourceMachine = sourceMachine
@@ -292,6 +298,7 @@ public struct BoxdSettings: Codable, Sendable, Equatable {
         self.inactivityTimeoutSeconds = max(Self.minimumInactivityTimeoutSeconds, inactivityTimeoutSeconds)
         self.claudeOAuthToken = claudeOAuthToken
         self.sshMachines = sshMachines
+        self.syncLogins = syncLogins
     }
 
     // Per-field `try?` decoding, same rule as `Settings`: one bad value must
@@ -308,6 +315,7 @@ public struct BoxdSettings: Codable, Sendable, Equatable {
         inactivityTimeoutSeconds = max(Self.minimumInactivityTimeoutSeconds, seconds)
         claudeOAuthToken = (try? c.decodeIfPresent(String.self, forKey: .claudeOAuthToken)) ?? ""
         sshMachines = (try? c.decodeIfPresent([SshMachine].self, forKey: .sshMachines)) ?? []
+        syncLogins = (try? c.decodeIfPresent(Bool.self, forKey: .syncLogins)) ?? true
     }
 
     /// The ssh machine of that name, when there is one.
@@ -317,7 +325,7 @@ public struct BoxdSettings: Codable, Sendable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case snapshotName, sourceMachine, folderTemplate, initCommand, copyGlobs, inactivityTimeoutSeconds
-        case claudeOAuthToken, sshMachines
+        case claudeOAuthToken, sshMachines, syncLogins
     }
 }
 

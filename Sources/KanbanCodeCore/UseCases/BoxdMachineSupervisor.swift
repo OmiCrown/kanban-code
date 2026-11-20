@@ -1292,11 +1292,14 @@ public actor BoxdMachineSupervisor: RemoteMachineControl {
 
         // The machine starts with the login of the snapshot. The session
         // must not: it gets the login of this Mac before it starts.
-        log("Syncing logins")
-        if lastClaudeAccountId == nil {
-            lastClaudeAccountId = await loginStore.claudeAccount()?["accountUuid"] as? String
+        // With `syncLogins` off no login of this Mac leaves it.
+        if await settingsProvider().syncLogins {
+            log("Syncing logins")
+            if lastClaudeAccountId == nil {
+                lastClaudeAccountId = await loginStore.claudeAccount()?["accountUuid"] as? String
+            }
+            _ = await AssistantLoginSync(runner: bridge, store: loginStore, remoteHome: runtime.remoteHome, machineName: machineName, accounts: loginAccounts).run()
         }
-        _ = await AssistantLoginSync(runner: bridge, store: loginStore, remoteHome: runtime.remoteHome, machineName: machineName, accounts: loginAccounts).run()
 
         let transport = BridgeTmuxTransport(runner: bridge, remoteHome: runtime.remoteHome)
         registry.setMachine(machineName, state: .connected, tmux: TmuxAdapter(transport: transport))
@@ -1757,6 +1760,7 @@ public actor BoxdMachineSupervisor: RemoteMachineControl {
     /// Every connected machine gets the login of this Mac, and a login a
     /// machine refreshed comes back to the Mac and on to the other machines.
     public func syncAllLogins() async {
+        guard await settingsProvider().syncLogins else { return }
         var pushedClaudeTo: [String] = []
         var accountMoves: [LoginMove] = []
         for (name, runtime) in machines.sorted(by: { $0.key < $1.key }) {
