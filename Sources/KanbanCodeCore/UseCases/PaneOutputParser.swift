@@ -21,6 +21,8 @@ public enum PaneOutputParser {
     public static func isReady(_ paneOutput: String, assistant: CodingAssistant) -> Bool {
         switch assistant {
         case .claude, .gemini:
+            // The selector of Claude's consent dialog is the same `❯`.
+            if assistant == .claude, claudeAsksBypassConsent(paneOutput) { return false }
             return paneOutput.contains(assistant.promptCharacter)
         case .codex:
             // Codex also prefixes historical user turns with `› text`; only a
@@ -63,6 +65,15 @@ public enum PaneOutputParser {
         let hasQuitOption = lines.contains { $0 == "2. No, quit" }
         let asksForEnter = lines.contains { $0.localizedCaseInsensitiveContains("press enter to continue") }
         return hasContinueOption && hasQuitOption && asksForEnter
+    }
+
+    /// The first run of `--dangerously-skip-permissions` in a config folder
+    /// asks for consent before it shows the prompt. "No, exit" is the
+    /// highlighted answer, so an Enter from the launch automation quits Claude.
+    /// Only a person accepts it: the automation must not answer, and must not
+    /// take its `❯` selector for the input prompt.
+    public static func claudeAsksBypassConsent(_ paneOutput: String) -> Bool {
+        paneOutput.contains("Yes, I accept") && paneOutput.contains("No, exit")
     }
 
     /// Backward-compatible: check if Claude Code's input prompt is visible.

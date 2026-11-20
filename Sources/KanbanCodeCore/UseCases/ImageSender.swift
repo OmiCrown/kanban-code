@@ -5,11 +5,14 @@ import KanbanCodeRemoteKit
 public enum ImageSendError: Error, LocalizedError {
     case assistantNotReady(CodingAssistant)
     case imageUploadTimeout(expected: Int, assistant: CodingAssistant)
+    case needsConfirmation(CodingAssistant)
 
     public var errorDescription: String? {
         switch self {
         case .assistantNotReady(let assistant):
             "\(assistant.displayName) did not become ready within the timeout period"
+        case .needsConfirmation(let assistant):
+            "\(assistant.displayName) asks to confirm Bypass Permissions mode. Open the terminal of this card and choose \"Yes, I accept\" (once for each profile), then send the prompt again."
         case .imageUploadTimeout(let n, let assistant):
             "Timed out waiting for image #\(n) to be accepted by \(assistant.displayName)"
         }
@@ -34,7 +37,8 @@ public actor ImageSender {
         sessionName: String,
         assistant: CodingAssistant = .claude,
         pollInterval: Duration = .milliseconds(500),
-        timeout: Duration? = nil
+        timeout: Duration? = nil,
+        consentTimeout: Duration = .seconds(120)
     ) async throws {
         // A rush host takes messages as soon as it runs, and queues them.
         if RushSessionName.isRush(sessionName) { return }
@@ -42,9 +46,20 @@ public actor ImageSender {
         let effectiveTimeout = timeout ?? (assistant == .gemini || assistant == .codex ? .seconds(60) : .seconds(30))
         let start = ContinuousClock.now
         var acceptedCodexStartupPrompt = false
-        while ContinuousClock.now - start < effectiveTimeout {
+        var consentSince: ContinuousClock.Instant?
+        while ContinuousClock.now - start < effectiveTimeout || consentSince != nil {
             let output = try await tmux.capturePane(sessionName: sessionName)
             if PaneOutputParser.isReady(output, assistant: assistant) { return }
+            // Waiting for a person: give them time to answer, and say so at the end.
+            if assistant == .claude, PaneOutputParser.claudeAsksBypassConsent(output) {
+                let since = consentSince ?? .now
+                consentSince = since
+                if ContinuousClock.now - since >= consentTimeout {
+                    throw ImageSendError.needsConfirmation(assistant)
+                }
+            } else {
+                consentSince = nil
+            }
             if assistant == .codex,
                !acceptedCodexStartupPrompt,
                PaneOutputParser.codexNeedsStartupConfirmation(output) {

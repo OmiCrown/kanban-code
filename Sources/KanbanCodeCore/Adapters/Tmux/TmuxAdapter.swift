@@ -154,6 +154,7 @@ public final class TmuxAdapter: TmuxManagerPort, @unchecked Sendable {
         // before sending Enter — without this, Enter can arrive before
         // the paste event is fully handled, causing it to be lost.
         try await Task.sleep(for: .milliseconds(100))
+        try await throwIfConsentDialog(sessionName: sessionName)
         let _ = try await runTmux(["send-keys", "-t", sessionName, "Enter"])
         // Verify the prompt was accepted — if text is still on the prompt line,
         // send Enter again (Claude sometimes needs a moment to process the paste)
@@ -193,6 +194,10 @@ public final class TmuxAdapter: TmuxManagerPort, @unchecked Sendable {
             try await Task.sleep(for: delay)
             delay = min(delay * 3 / 2, .seconds(2))
             let output = try await capturePane(sessionName: sessionName)
+            // The dialog's `❯` selector reads as unsent text; Enter would answer "No, exit".
+            if PaneOutputParser.claudeAsksBypassConsent(output) {
+                throw TmuxError.needsConfirmation(sessionName: sessionName)
+            }
             if !Self.paneHasUnsentPrompt(output) { return }
             if let abortIf, await abortIf() {
                 KanbanCodeLog.info("send", "Prompt no longer wanted for \(sessionName), clearing the composer")
@@ -284,9 +289,19 @@ public final class TmuxAdapter: TmuxManagerPort, @unchecked Sendable {
         timeout: Duration = .seconds(30),
         abortIf: PromptAbortCheck?
     ) async throws {
+        try await throwIfConsentDialog(sessionName: sessionName)
         // Press Enter to submit
         let _ = try await runTmux(["send-keys", "-t", sessionName, "Enter"])
         try await ensurePromptSent(sessionName: sessionName, timeout: timeout, abortIf: abortIf)
+    }
+
+    /// An Enter while Claude asks for consent to Bypass Permissions mode picks
+    /// "No, exit" and ends the session: leave the answer to the person.
+    private func throwIfConsentDialog(sessionName: String) async throws {
+        let output = (try? await capturePane(sessionName: sessionName)) ?? ""
+        if PaneOutputParser.claudeAsksBypassConsent(output) {
+            throw TmuxError.needsConfirmation(sessionName: sessionName)
+        }
     }
 
     public func capturePane(sessionName: String) async throws -> String {
@@ -343,11 +358,14 @@ public enum TmuxError: Error, LocalizedError {
     case createFailed(name: String, message: String)
     case killFailed(name: String, message: String)
     case promptNotSubmitted(sessionName: String)
+    case needsConfirmation(sessionName: String)
 
     public var errorDescription: String? {
         switch self {
         case .createFailed(let name, let message): "Failed to create tmux session '\(name)': \(message)"
         case .killFailed(let name, let message): "Failed to kill tmux session '\(name)': \(message)"
+        case .needsConfirmation(let sessionName):
+            "Claude in '\(sessionName)' asks to confirm Bypass Permissions mode. Open its terminal and choose \"Yes, I accept\" (once for each profile)"
         case .promptNotSubmitted(let sessionName): "The prompt stayed in the composer of '\(sessionName)' after repeated Enter presses"
         }
     }
