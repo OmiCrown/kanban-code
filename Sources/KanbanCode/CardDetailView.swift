@@ -1669,7 +1669,7 @@ struct CardDetailView: View {
         .glassEffect(.regular, in: .capsule)
         .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
         .modifier(HoverBrightness())
-        .help(isExpanded ? "Contract (⌘⏎)" : "Expand (⌘⏎)")
+        .help(isExpanded ? "Contract (⌘⇧⏎)" : "Expand (⌘⇧⏎)")
     }
 
     private var actionsMenuButton: some View {
