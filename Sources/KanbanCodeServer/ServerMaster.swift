@@ -36,6 +36,7 @@ final class ServerMaster {
         let registry = CodingAssistantRegistry()
         let claudeDetector = ClaudeCodeActivityDetector()
         let claudeDiscovery = ProfileSessionDiscovery(profiles: (settings ?? Settings()).effectiveClaudeProfiles)
+        GitHubAccounts.shared.setProfiles((settings ?? Settings()).effectiveClaudeProfiles)
         self.claudeDiscovery = claudeDiscovery
         if enabled.contains(.claude) {
             registry.register(.claude, discovery: claudeDiscovery, detector: claudeDetector, store: ClaudeCodeSessionStore())
@@ -272,6 +273,7 @@ final class ServerMaster {
             guard current.raw != last.raw, let settings = current.settings else { continue }
             if settings.peers != last.settings?.peers { await peerSync.setPeers(settings.peers) }
             claudeDiscovery.setProfiles(settings.effectiveClaudeProfiles)
+            GitHubAccounts.shared.setProfiles(settings.effectiveClaudeProfiles)
             await attentionCenter?.configure(settings: settings.notifications.attentionPolicy, phone: settings.notifications.phoneSender)
             last = current
             await store.loadSettingsAndCache()

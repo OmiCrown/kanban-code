@@ -88,6 +88,8 @@ struct ProfilesSettingsView: View {
                  : "Adds the Kanban hooks, a statusline that records context usage (your own statusline keeps running, wrapped), the vault guard and the kanban-code skill to \(abbreviated(value.settingsPath)). Turning it off removes exactly these and restores your statusline.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+            githubFields(for: profile)
+
             if let error = errors[value.path] {
                 Text(error)
                     .font(.caption)
@@ -95,6 +97,33 @@ struct ProfilesSettingsView: View {
                     .textSelection(.enabled)
             }
         }
+    }
+
+    /// The GitHub account of the profile's repositories. A repository inside
+    /// one of the folders whose owner is not listed is flagged on its card and
+    /// is not merged.
+    @ViewBuilder
+    private func githubFields(for profile: Binding<ClaudeProfile>) -> some View {
+        TextField("GitHub login", text: Binding(
+            get: { profile.wrappedValue.githubUser ?? "" },
+            set: {
+                let trimmed = $0.trimmingCharacters(in: .whitespaces)
+                profile.wrappedValue.githubUser = trimmed.isEmpty ? nil : trimmed
+                scheduleSave()
+            }), prompt: Text("e.g. omi-client"))
+            .textFieldStyle(.roundedBorder)
+        ListField(title: "Project folders", prompt: "~/Repos/Client", values: Binding(
+            get: { profile.wrappedValue.projectRoots },
+            set: {
+                profile.wrappedValue.projectRoots = $0.map { ClaudeProfile.normalized($0) }
+                scheduleSave()
+            }))
+        ListField(title: "GitHub owners", prompt: "client, client-app", values: Binding(
+            get: { profile.wrappedValue.githubOwners },
+            set: { profile.wrappedValue.githubOwners = $0; scheduleSave() }))
+        Text("Repositories inside the project folders run gh as this login (it must be signed in: gh auth login). A repository there whose owner is not in the list is flagged and its pull requests are not merged. Empty list: no owner check.")
+            .font(.caption)
+            .foregroundStyle(.tertiary)
     }
 
     private func badge(_ text: String, color: Color) -> some View {
@@ -187,5 +216,32 @@ struct ProfilesSettingsView: View {
             }
             scheduleSave()
         }
+    }
+}
+
+/// A comma-separated list in a text field. The list is read back when the
+/// field is submitted or loses focus, so a comma typed on the way is kept.
+private struct ListField: View {
+    let title: String
+    let prompt: String
+    @Binding var values: [String]
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField(title, text: $text, prompt: Text(prompt))
+            .textFieldStyle(.roundedBorder)
+            .focused($focused)
+            .onAppear { text = values.joined(separator: ", ") }
+            .onSubmit(commit)
+            .onChange(of: focused) { if !focused { commit() } }
+    }
+
+    private func commit() {
+        let parsed = text.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        if parsed != values { values = parsed }
+        text = parsed.joined(separator: ", ")
     }
 }

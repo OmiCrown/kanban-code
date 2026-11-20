@@ -62,10 +62,20 @@ struct PRTabView: View {
 
     @State private var prBody: String?
     @State private var isLoadingPRBody = false
+    @State private var accountProblem: GitHubAccounts.Problem?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                if let accountProblem {
+                    Label(accountProblem.description, systemImage: "exclamationmark.triangle.fill")
+                        .font(.app(.caption))
+                        .foregroundStyle(.red)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                        .textSelection(.enabled)
+                }
                 ForEach(Array(card.link.prLinks.sortedByPRNumber.enumerated()), id: \.element.number) { index, pr in
                     if index > 0 { Divider().padding(.vertical, 4) }
 
@@ -150,8 +160,17 @@ struct PRTabView: View {
             .padding(16)
         }
         .task(id: card.id) {
+            await loadAccountProblem()
             await loadPRBody()
         }
+    }
+
+    /// A repository of another GitHub account in a profile's folder, or a
+    /// profile whose login `gh` does not have.
+    private func loadAccountProblem() async {
+        guard let projectPath = card.link.projectPath else { accountProblem = nil; return }
+        let owner = await GhCliAdapter().resolveRepoSlug(repoRoot: projectPath)?.owner
+        accountProblem = await GitHubAccounts.shared.problem(forRepo: projectPath, owner: owner)
     }
 
     private func loadPRBody() async {

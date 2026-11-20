@@ -15,6 +15,13 @@ public struct ClaudeProfile: Codable, Sendable, Equatable, Identifiable {
     public var colorHex: String?
     public var enabled: Bool
     public var integration: Bool
+    /// The GitHub login this profile's repositories are worked on as.
+    public var githubUser: String?
+    /// Folders whose repositories belong to this profile (`~/Repos/Client`).
+    public var projectRoots: [String]
+    /// GitHub owners (users and organizations) that profile's repositories may
+    /// have, besides `githubUser`. Empty switches the owner check off.
+    public var githubOwners: [String]
 
     public var id: String { path }
 
@@ -24,6 +31,9 @@ public struct ClaudeProfile: Codable, Sendable, Equatable, Identifiable {
         colorHex: String? = nil,
         enabled: Bool = false,
         integration: Bool = false,
+        githubUser: String? = nil,
+        projectRoots: [String] = [],
+        githubOwners: [String] = [],
         home: String = NSHomeDirectory()
     ) {
         let normalizedPath = Self.normalized(path, home: home)
@@ -32,6 +42,9 @@ public struct ClaudeProfile: Codable, Sendable, Equatable, Identifiable {
         self.colorHex = colorHex
         self.enabled = enabled
         self.integration = integration
+        self.githubUser = githubUser
+        self.projectRoots = projectRoots.map { Self.normalized($0, home: home) }
+        self.githubOwners = githubOwners
     }
 
     public var projectsDirectory: String { path + "/projects" }
@@ -71,7 +84,7 @@ public struct ClaudeProfile: Codable, Sendable, Equatable, Identifiable {
     // MARK: - Decoding (per field, one bad value never drops the profile)
 
     private enum CodingKeys: String, CodingKey {
-        case path, name, colorHex, enabled, integration
+        case path, name, colorHex, enabled, integration, githubUser, projectRoots, githubOwners
     }
 
     public init(from decoder: Decoder) throws {
@@ -84,6 +97,12 @@ public struct ClaudeProfile: Codable, Sendable, Equatable, Identifiable {
         colorHex = (try? c.decodeIfPresent(String.self, forKey: .colorHex)) ?? nil
         enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? false
         integration = (try? c.decodeIfPresent(Bool.self, forKey: .integration)) ?? false
+        let user = ((try? c.decodeIfPresent(String.self, forKey: .githubUser)) ?? nil)?
+            .trimmingCharacters(in: .whitespaces)
+        githubUser = user?.isEmpty == false ? user : nil
+        projectRoots = ((try? c.decodeIfPresent([String].self, forKey: .projectRoots)) ?? nil)?
+            .map { Self.normalized($0) } ?? []
+        githubOwners = ((try? c.decodeIfPresent([String].self, forKey: .githubOwners)) ?? nil) ?? []
     }
 
     // MARK: - Paths

@@ -34,6 +34,7 @@ final class AppComposition {
 
     private init() {
         let claudeDiscovery = ProfileSessionDiscovery(profiles: Self.readClaudeProfiles())
+        GitHubAccounts.shared.setProfiles(Self.readClaudeProfiles())
         let claudeDetector = ClaudeCodeActivityDetector()
         let claudeStore = ClaudeCodeSessionStore()
         let geminiDiscovery = GeminiSessionDiscovery()
@@ -192,7 +193,9 @@ final class AppComposition {
         NotificationCenter.default.addObserver(forName: .kanbanCodeSettingsChanged, object: nil, queue: .main) { _ in
             let peers = Self.readPeers()
             Task { await peerSync.setPeers(peers) }
-            claudeDiscovery.setProfiles(Self.readClaudeProfiles())
+            let profiles = Self.readClaudeProfiles()
+            claudeDiscovery.setProfiles(profiles)
+            GitHubAccounts.shared.setProfiles(profiles)
         }
         let agentSync = AgentSyncEngine(identity: identity) { [peerSync] in await peerSync.syncPeers() }
         Task.detached { await agentSync.run() }
