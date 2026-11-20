@@ -302,7 +302,8 @@ public final class MasterEngine {
                 let configDir = (NSHomeDirectory() as NSString).appendingPathComponent(assistant.configDirName)
                 let claudeProjectsDir = (configDir as NSString).appendingPathComponent("projects")
                 let encodedProject = SessionFileMover.encodeProjectPath(projectPath)
-                let sessionDir = (claudeProjectsDir as NSString).appendingPathComponent(encodedProject)
+                // The shell picks the Claude profile, so the new transcript can appear in any enabled one.
+                let projectsRoots = assistant == .claude ? claudeProjectsRoots() : [claudeProjectsDir]
                 let existingCodexFiles = assistant == .codex
                     ? Set(CodexSessionDiscovery.sessionFiles())
                     : []
@@ -320,13 +321,10 @@ public final class MasterEngine {
                 } else if assistant == .codex {
                     // Codex stores sessions recursively under ~/.codex/sessions.
                     dirsToSnapshot = []
-                } else if worktreeName != nil {
-                    let allDirs = (try? FileManager.default.contentsOfDirectory(atPath: claudeProjectsDir)) ?? []
-                    dirsToSnapshot = [sessionDir] + allDirs
-                        .filter { $0.hasPrefix(encodedProject) && $0 != encodedProject }
-                        .map { (claudeProjectsDir as NSString).appendingPathComponent($0) }
                 } else {
-                    dirsToSnapshot = [sessionDir]
+                    dirsToSnapshot = Self.sessionDirectories(
+                        projectsRoots: projectsRoots, encodedProject: encodedProject,
+                        includeWorktrees: worktreeName != nil)
                 }
                 var existingFilesByDir: [String: Set<String>] = [:]
                 for dir in dirsToSnapshot {
@@ -442,13 +440,11 @@ public final class MasterEngine {
                         dirsToScan = slugDirs.map { slug in
                             (tmpDir as NSString).appendingPathComponent(slug).appending("/chats")
                         }
-                    } else if worktreeName != nil {
-                        let allDirs = (try? FileManager.default.contentsOfDirectory(atPath: claudeProjectsDir)) ?? []
-                        dirsToScan = allDirs
-                            .filter { $0.hasPrefix(encodedProject) }
-                            .map { (claudeProjectsDir as NSString).appendingPathComponent($0) }
                     } else {
-                        dirsToScan = [sessionDir]
+                        // Re-listed each time: a worktree folder may appear mid-poll.
+                        dirsToScan = Self.sessionDirectories(
+                            projectsRoots: projectsRoots, encodedProject: encodedProject,
+                            includeWorktrees: worktreeName != nil)
                     }
 
                     for dir in dirsToScan {
@@ -1141,6 +1137,34 @@ public final class MasterEngine {
         for session in sessions where session.name.contains(sid8) && !RushSessionName.isRush(session.name) {
             try? await tmux.killSession(name: session.name)
         }
+    }
+
+    /// The `projects` folders of the enabled Claude profiles that exist, plus
+    /// `platform.claudeProjectsDirectory`. A launch looks for its new transcript in all of them.
+    func claudeProjectsRoots() -> [String] {
+        let profiles = Settings.readEffectiveClaudeProfiles(kanbanHome: platform.kanbanHome)
+            .filter { $0.enabled && $0.exists && $0.isSafeLocation() }
+            .map(\.projectsDirectory)
+        var seen = Set<String>()
+        return ([platform.claudeProjectsDirectory] + profiles).filter { seen.insert($0).inserted }
+    }
+
+    /// Folders in which the transcript of a session started in a project can appear:
+    /// `<root>/<encodedProject>` for each root, and with a worktree also the
+    /// `<encodedProject>-…` folders next to it (worktrees get their own folder).
+    nonisolated static func sessionDirectories(
+        projectsRoots: [String], encodedProject: String, includeWorktrees: Bool
+    ) -> [String] {
+        var result: [String] = []
+        for root in projectsRoots {
+            result.append((root as NSString).appendingPathComponent(encodedProject))
+            guard includeWorktrees else { continue }
+            let siblings = ((try? FileManager.default.contentsOfDirectory(atPath: root)) ?? [])
+                .filter { $0.hasPrefix(encodedProject) && $0 != encodedProject }
+                .sorted()
+            result += siblings.map { (root as NSString).appendingPathComponent($0) }
+        }
+        return result
     }
 
     /// The transcript Claude writes here for a session started in `cwd`.
