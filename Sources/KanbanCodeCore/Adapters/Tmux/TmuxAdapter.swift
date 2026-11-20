@@ -86,6 +86,9 @@ public final class TmuxAdapter: TmuxManagerPort, @unchecked Sendable {
         if !result.succeeded {
             throw TmuxError.createFailed(name: name, message: result.stderr)
         }
+        // The card has its own header; the green status line only crowds the
+        // bottom row (session name cut at 10 characters, then the window list).
+        _ = try? await runTmux(["set-option", "-t", name, "status", "off"])
 
         if let command, !command.isEmpty {
             if command.contains("\n") {
