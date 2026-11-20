@@ -620,6 +620,33 @@ final class TerminalCache {
         self.scrollPassthroughDepth = max(0, self.scrollPassthroughDepth - 1)
     }
 
+    /// What each session's pane is, asked of tmux and kept for two seconds: the
+    /// wheel monitor must answer at once and cannot wait for a tmux round trip.
+    private var paneScrollModes: [String: (mode: PaneScrollMode, asked: ContinuousClock.Instant)] = [:]
+    private var paneScrollModeAsking: Set<String> = []
+
+    /// The cached answer, or nil when none was asked yet. A stale answer is
+    /// used while a fresh one is fetched.
+    fileprivate func paneScrollMode(of session: String) -> PaneScrollMode? {
+        let known = paneScrollModes[session]
+        if known == nil || known.map({ $0.asked.duration(to: .now) > .seconds(2) }) == true,
+           paneScrollModeAsking.insert(session).inserted {
+            let tmux = Self.tmuxPath
+            Task.detached {
+                let result = try? await ShellCommand.run(
+                    tmux, arguments: ["display-message", "-p", "-t", session, PaneScrollMode.tmuxFormat],
+                    timeout: 2)
+                let mode = PaneScrollMode.parse(result?.stdout ?? "")
+                await MainActor.run {
+                    let cache = TerminalCache.shared
+                    cache.paneScrollModes[session] = (mode, .now)
+                    cache.paneScrollModeAsking.remove(session)
+                }
+            }
+        }
+        return known?.mode
+    }
+
     /// Tracks tmux copy-mode state per session for scroll interception.
     fileprivate var copyModeSessions: Set<String> = []
 
@@ -709,6 +736,17 @@ final class TerminalCache {
             if RushSessionName.isRush(session) { return event }
 
             let inCopyMode = self?.copyModeSessions.contains(session) ?? false
+
+            // A full-screen program keeps its own scrollback: tmux has none to
+            // walk. Until the first answer from tmux arrives (a few ms) the tick
+            // is dropped rather than sent into copy-mode.
+            if !inCopyMode, !AppServices.tmux.isRemote(session) {
+                switch self?.paneScrollMode(of: session) {
+                case .forwardToProgram: return event
+                case nil: return nil
+                case .tmuxCopyMode: break
+                }
+            }
 
             // After exiting copy-mode, ignore scroll events for 500ms
             // to prevent residual trackpad momentum from re-entering.
