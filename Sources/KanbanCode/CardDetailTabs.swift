@@ -41,6 +41,7 @@ struct IssueTabView: View {
                 if let body = issue.body, !body.isEmpty {
                     Markdown(body)
                         .markdownTheme(.compact)
+                        .markdownImageProvider(PolicyImageProvider())
                         .textSelection(.enabled)
                 } else {
                     Text("No description provided.")
@@ -138,6 +139,7 @@ struct PRTabView: View {
                 } else if let body = prBody ?? card.link.prLink?.body, !body.isEmpty {
                     Markdown(htmlToMarkdownImages(body))
                         .markdownTheme(.compact)
+                        .markdownImageProvider(PolicyImageProvider())
                         .textSelection(.enabled)
                 } else {
                     Text("No description provided.")
