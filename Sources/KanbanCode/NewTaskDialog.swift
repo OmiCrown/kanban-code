@@ -17,6 +17,8 @@ struct NewTaskDialog: View {
     /// Boxd machine the user picked. Called just before `onCreateAndLaunch`
     /// when the launch runs on boxd.
     var onMachineChoice: (BoxdMachineChoice) -> Void = { _ in }
+    /// Branch names in use, so a name made from the prompt does not repeat one.
+    var takenWorktreeNames: Set<String> = []
 
     private let settingsStore = SettingsStore()
     @State private var settings = Settings()
@@ -146,6 +148,17 @@ struct NewTaskDialog: View {
                             TextField("", text: $worktreeBranch, prompt: Text("Leave empty for a random name"))
                                 .textFieldStyle(.roundedBorder)
                                 .font(.app(.callout))
+                            Button {
+                                worktreeBranch = WorktreeSlug.make(
+                                    from: prompt,
+                                    fallback: "task-" + UUID().uuidString.prefix(8).lowercased(),
+                                    taken: takenWorktreeNames
+                                )
+                            } label: {
+                                Image(systemName: "wand.and.stars")
+                            }
+                            .help("Make a name from the prompt")
+                            .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                         .padding(.leading, 20)
                     }

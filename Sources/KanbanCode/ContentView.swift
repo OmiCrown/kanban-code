@@ -891,7 +891,8 @@ struct ContentView: View {
                     onCreateAndLaunch: { prompt, projectPath, title, createWorktree, runRemotely, skipPermissions, commandOverride, images, assistant, apiServiceId, worktreeBranch in
                         createManualTaskAndLaunch(prompt: prompt, projectPath: projectPath, title: title, createWorktree: createWorktree, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: assistant, apiServiceId: apiServiceId, worktreeBranch: worktreeBranch)
                     },
-                    onMachineChoice: { pendingMachineChoice = $0 }
+                    onMachineChoice: { pendingMachineChoice = $0 },
+                    takenWorktreeNames: takenWorktreeNames
                 )
                 .task { await refreshBoxdMachines() }
             }
@@ -958,7 +959,8 @@ struct ContentView: View {
                     onRemoveMachine: {
                         launchConfig = nil
                         presentDialog(.confirmDestroyMachine(cardId: config.cardId))
-                    }
+                    },
+                    takenWorktreeNames: takenWorktreeNames
                 )
                 .task { await refreshBoxdMachines() }
             }
@@ -1930,6 +1932,11 @@ struct ContentView: View {
         }
 
         close(fd)
+    }
+
+    /// The branches the cards already have, for a name made from a prompt.
+    private var takenWorktreeNames: Set<String> {
+        Set(store.state.links.values.compactMap { $0.worktreeBranch })
     }
 
     // MARK: - Navigation History
