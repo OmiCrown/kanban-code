@@ -36,6 +36,12 @@ public struct ImportGroup: Identifiable, Equatable, Sendable {
     public let profilePath: String?
     /// Newest first.
     public let candidates: [ImportCandidate]
+
+    public init(projectPath: String?, profilePath: String?, candidates: [ImportCandidate]) {
+        self.projectPath = projectPath
+        self.profilePath = profilePath
+        self.candidates = candidates
+    }
 }
 
 public struct ImportOffer: Equatable, Sendable {

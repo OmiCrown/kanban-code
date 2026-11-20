@@ -109,6 +109,7 @@ struct ContentView: View {
     @AppStorage("detailExpanded") var detailExpandedPersisted = false
     @AppStorage("selectedCardId") var selectedCardIdPersisted = ""
     @State var showAddFromPath = false
+    @State var showImportSessions = false
     @State var isDroppingFolder = false
     @State var isDroppingImage = false
     @State var addFromPathText = ""
@@ -917,6 +918,9 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showAddFromPath) {
                 addFromPathSheet
+            }
+            .sheet(isPresented: $showImportSessions) {
+                ImportSessionsView(store: store) { showImportSessions = false }
             }
             .sheet(isPresented: $showCreateChannel) {
                 CreateChannelDialog(isPresented: $showCreateChannel) { name in
@@ -1755,6 +1759,13 @@ struct ContentView: View {
                             expandedActionsMenu(for: card)
                         }
                     }
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showImportSessions = true } label: {
+                        Label("Import", systemImage: "square.and.arrow.down")
+                    }
+                    .help("Bring running and finished Claude sessions onto the board")
                 }
 
                 ToolbarItem(placement: .primaryAction) {
