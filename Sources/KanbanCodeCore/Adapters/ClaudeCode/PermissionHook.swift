@@ -34,6 +34,13 @@ public enum PermissionHook {
 
     """
 
+    /// Takes the permission hook out of a Claude settings file.
+    public static func uninstall(settingsPath: String? = nil) throws {
+        try HookManager.removeHookEntries(
+            marker: marker, event: event,
+            settingsPath: settingsPath ?? HookManager.defaultSettingsPath(for: .claude))
+    }
+
     /// Installs it when the Kanban Code hooks of Claude Code are installed.
     public static func installWhereHooked() {
         if HookManager.isInstalled(for: .claude), (try? install()) == true {

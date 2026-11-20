@@ -13,6 +13,8 @@ final class ServerMaster {
     let home: String
     let store: BoardStore
     let settingsStore: SettingsStore
+    /// Reads the sessions of every enabled Claude profile.
+    let claudeDiscovery: ProfileSessionDiscovery
     let engine: MasterEngine
     let orchestrator: BackgroundOrchestrator
     let identity: MachineIdentity
@@ -33,8 +35,10 @@ final class ServerMaster {
 
         let registry = CodingAssistantRegistry()
         let claudeDetector = ClaudeCodeActivityDetector()
+        let claudeDiscovery = ProfileSessionDiscovery(profiles: (settings ?? Settings()).effectiveClaudeProfiles)
+        self.claudeDiscovery = claudeDiscovery
         if enabled.contains(.claude) {
-            registry.register(.claude, discovery: ClaudeCodeSessionDiscovery(), detector: claudeDetector, store: ClaudeCodeSessionStore())
+            registry.register(.claude, discovery: claudeDiscovery, detector: claudeDetector, store: ClaudeCodeSessionStore())
         }
         if enabled.contains(.gemini) {
             registry.register(.gemini, discovery: GeminiSessionDiscovery(), detector: GeminiActivityDetector(), store: GeminiSessionStore())
@@ -250,6 +254,12 @@ final class ServerMaster {
                     say("restored \(assistant.displayName) hooks missing from its settings: \(restored.joined(separator: ", "))")
                 }
             }
+            for profile in Settings.readEffectiveClaudeProfiles(kanbanHome: home) where !profile.isDefault {
+                let restored = HookRestorer.restoreMissing(inProfile: profile, kanbanHome: home)
+                if !restored.isEmpty {
+                    say("restored hooks missing from profile \(profile.name): \(restored.joined(separator: ", "))")
+                }
+            }
         }
     }
 
@@ -261,6 +271,7 @@ final class ServerMaster {
             let current = Self.readSettings(home: home)
             guard current.raw != last.raw, let settings = current.settings else { continue }
             if settings.peers != last.settings?.peers { await peerSync.setPeers(settings.peers) }
+            claudeDiscovery.setProfiles(settings.effectiveClaudeProfiles)
             await attentionCenter?.configure(settings: settings.notifications.attentionPolicy, phone: settings.notifications.phoneSender)
             last = current
             await store.loadSettingsAndCache()

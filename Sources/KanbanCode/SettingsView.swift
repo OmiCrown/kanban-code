@@ -118,6 +118,9 @@ struct SettingsView: View {
             )
             .tabItem { Label("General", systemImage: "gear") }
 
+            ProfilesSettingsView()
+                .tabItem { Label("Profiles", systemImage: "person.2") }
+
             SelfCompactSettingsView()
                 .tabItem { Label("Self-Compact", systemImage: "arrow.triangle.2.circlepath") }
 

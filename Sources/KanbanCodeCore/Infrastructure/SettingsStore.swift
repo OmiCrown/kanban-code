@@ -34,6 +34,9 @@ public struct Settings: Codable, Sendable {
     public var remoteControl: RemoteControlSettings
     /// Other masters this one syncs cards with (Settings > Peers).
     public var peers: [PeerConfig]
+    /// Claude config directories shown on the board. Merge with
+    /// `ClaudeProfile.discover()` through `ClaudeProfile.merged`.
+    public var claudeProfiles: [ClaudeProfile]
 
     public init(
         projects: [Project] = [],
@@ -57,7 +60,8 @@ public struct Settings: Codable, Sendable {
         assistantCommands: [String: AssistantCommandTemplate] = [:],
         assistantRuntimes: [String: SessionRuntime] = [:],
         remoteControl: RemoteControlSettings = RemoteControlSettings(),
-        peers: [PeerConfig] = []
+        peers: [PeerConfig] = [],
+        claudeProfiles: [ClaudeProfile] = []
     ) {
         self.projects = projects
         self.globalView = globalView
@@ -81,6 +85,7 @@ public struct Settings: Codable, Sendable {
         self.assistantRuntimes = assistantRuntimes
         self.remoteControl = remoteControl
         self.peers = peers
+        self.claudeProfiles = claudeProfiles
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -88,7 +93,7 @@ public struct Settings: Codable, Sendable {
         case promptTemplate, githubIssuePromptTemplate, columnOrder, hasCompletedOnboarding, defaultAssistant
         case enabledAssistants
         case apiServices, defaultAPIServiceIds
-        case selfCompact, subagents, assistantCommands, assistantRuntimes, remoteControl, peers
+        case selfCompact, subagents, assistantCommands, assistantRuntimes, remoteControl, peers, claudeProfiles
         case skill // backward-compat: old name for promptTemplate
     }
 
@@ -150,6 +155,16 @@ public struct Settings: Codable, Sendable {
         }
         remoteControl = (try? container.decodeIfPresent(RemoteControlSettings.self, forKey: .remoteControl)) ?? RemoteControlSettings()
         peers = (try? container.decodeIfPresent([PeerConfig].self, forKey: .peers)) ?? []
+        // One unreadable profile entry is skipped, the others stay.
+        claudeProfiles = (try? container.decodeIfPresent([LossyProfile].self, forKey: .claudeProfiles))?
+            .compactMap(\.profile) ?? []
+    }
+
+    private struct LossyProfile: Decodable {
+        let profile: ClaudeProfile?
+        init(from decoder: Decoder) throws {
+            profile = try? ClaudeProfile(from: decoder)
+        }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -179,6 +194,9 @@ public struct Settings: Codable, Sendable {
         try container.encode(remoteControl, forKey: .remoteControl)
         if !peers.isEmpty {
             try container.encode(peers, forKey: .peers)
+        }
+        if !claudeProfiles.isEmpty {
+            try container.encode(claudeProfiles, forKey: .claudeProfiles)
         }
         // Note: "skill" is NOT encoded — only read for backward-compat
     }

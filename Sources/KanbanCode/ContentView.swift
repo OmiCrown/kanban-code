@@ -258,7 +258,7 @@ struct ContentView: View {
                 if assistantRegistry.discovery(for: assistant) == nil {
                     switch assistant {
                     case .claude:
-                        assistantRegistry.register(.claude, discovery: ClaudeCodeSessionDiscovery(), detector: ClaudeCodeActivityDetector(), store: ClaudeCodeSessionStore())
+                        assistantRegistry.register(.claude, discovery: AppComposition.shared.claudeDiscovery, detector: ClaudeCodeActivityDetector(), store: ClaudeCodeSessionStore())
                     case .gemini:
                         assistantRegistry.register(.gemini, discovery: GeminiSessionDiscovery(), detector: GeminiActivityDetector(), store: GeminiSessionStore())
                     case .codex:
@@ -1665,6 +1665,12 @@ struct ContentView: View {
                     projectSelectorMenu
                 }
 
+                if !store.state.labelledProfiles.isEmpty {
+                    ToolbarItem(placement: .navigation) {
+                        profileSelectorMenu
+                    }
+                }
+
                 if tbVis.showViewModePicker {
                     ToolbarItem(placement: .navigation) {
                         viewModePicker
@@ -2113,6 +2119,40 @@ struct ContentView: View {
             Text(currentProjectName)
                 .font(.app(.headline))
         }
+    }
+
+    // MARK: - Profile Selector
+
+    /// Filters the board by Claude profile. Shown while more than one profile is enabled.
+    private var profileSelectorMenu: some View {
+        let profiles = store.state.labelledProfiles
+        let selected = store.state.selectedProfilePath
+        let selectedName = profiles.first { $0.path == selected }?.name
+        return Menu {
+            Button {
+                store.dispatch(.setSelectedProfile(nil))
+            } label: {
+                HStack {
+                    Text("All Profiles")
+                    if selected == nil { Image(systemName: "checkmark") }
+                }
+            }
+            Divider()
+            ForEach(profiles) { profile in
+                Button {
+                    store.dispatch(.setSelectedProfile(profile.path))
+                } label: {
+                    HStack {
+                        Text(profile.name)
+                        if selected == profile.path { Image(systemName: "checkmark") }
+                    }
+                }
+            }
+        } label: {
+            Label(selectedName ?? "All Profiles", systemImage: "person.crop.circle")
+                .font(.app(.headline))
+        }
+        .help("Show the cards of one Claude profile")
     }
 
     // MARK: - Keyboard Shortcuts
@@ -3333,6 +3373,13 @@ struct ContentView: View {
             let restored = HookRestorer.restoreMissing(for: assistant)
             if !restored.isEmpty {
                 KanbanCodeLog.info("hooks", "restored \(assistant.displayName) hooks missing from its settings: \(restored.joined(separator: ", "))")
+            }
+        }
+        // Other Claude profiles keep their entries when their integration is on.
+        for profile in Settings.readEffectiveClaudeProfiles() where !profile.isDefault {
+            let restored = HookRestorer.restoreMissing(inProfile: profile)
+            if !restored.isEmpty {
+                KanbanCodeLog.info("hooks", "restored hooks missing from profile \(profile.name): \(restored.joined(separator: ", "))")
             }
         }
     }

@@ -154,6 +154,17 @@ public final class AppState: @unchecked Sendable {
     /// fields are kept as computed accessors that read/write this enum.
     public var openDrawer: Drawer = .none { didSet { cardInputsVersion &+= 1 } }
     public var selectedProjectPath: String? { didSet { cardInputsVersion &+= 1 } }
+    /// The Claude profiles the app knows (registered and found on disk).
+    /// A card of a known profile that is switched off is not shown.
+    public var profiles: [ClaudeProfile] = [] { didSet { cardInputsVersion &+= 1 } }
+    /// The profiles to label cards with and to filter by: the enabled ones,
+    /// and only when there is more than one (a single profile needs neither).
+    public var labelledProfiles: [ClaudeProfile] {
+        let enabled = profiles.filter(\.enabled)
+        return enabled.count > 1 ? enabled : []
+    }
+    /// Config directory of the one profile whose cards are shown; nil shows all.
+    public var selectedProfilePath: String? { didSet { cardInputsVersion &+= 1 } }
     public var paletteOpen: Bool = false
     public var detailExpanded: Bool = false
     public var promptEditorFocused: Bool = false
@@ -579,13 +590,15 @@ public final class AppState: @unchecked Sendable {
         let liveIds = Set(cards.lazy.filter { self.isLive($0) }.map(\.id))
         let liveChanged = liveIds != builtLiveCardIds
         builtLiveCardIds = liveIds
-        let memoKey = [selectedProjectPath ?? ""] + excludedPaths
+        let profileKey = profiles.map { "\($0.path):\($0.enabled)" }.joined(separator: ",")
+        let memoKey = [selectedProjectPath ?? "", selectedProfilePath ?? "", profileKey] + excludedPaths
         guard cardsChanged || liveChanged || memoKey != projectFilterMemoKey else { return }
         if memoKey != projectFilterMemoKey {
             projectFilterMemo = [:]
             projectFilterMemoKey = memoKey
         }
         let newFiltered = cards.filter { card in
+            guard cardMatchesProfileFilter(card) else { return false }
             guard let path = card.link.projectPath ?? card.session?.projectPath else {
                 return cardMatchesProjectFilter(card)
             }
@@ -703,6 +716,16 @@ public final class AppState: @unchecked Sendable {
             card.column == .inProgress && card.link.parentCardId == nil
                 && !(card.link.remote?.mode == .boxd && card.link.isRemote)
         }
+    }
+
+    /// Hides the cards of a known profile that is switched off, and with a
+    /// profile selected, the cards of the others. A card whose transcript is
+    /// in no registered profile is never hidden by the switches.
+    private func cardMatchesProfileFilter(_ card: KanbanCodeCard) -> Bool {
+        let dir = card.profileConfigDirectory.map { ClaudeProfile.normalized($0) }
+        if let dir, let profile = profiles.first(where: { $0.path == dir }), !profile.enabled { return false }
+        guard let selected = selectedProfilePath else { return true }
+        return dir == selected
     }
 
     private func cardMatchesProjectFilter(_ card: KanbanCodeCard) -> Bool {
@@ -898,6 +921,8 @@ public enum Action: Sendable {
     case setNotice(String?, kind: NoticeKind)
     case setRateLimitedRepos(Set<String>)
     case setSelectedProject(String?)
+    case setProfiles([ClaudeProfile])
+    case setSelectedProfile(String?)
     case setLoading(Bool)
     case setIsRefreshingBacklog(Bool)
 
@@ -3189,6 +3214,20 @@ public enum Reducer {
             state.selectedProjectPath = path
             return []
 
+        case .setProfiles(let profiles):
+            guard state.profiles != profiles else { return [] }
+            state.profiles = profiles
+            // A filter on a profile that is gone or switched off would show an empty board.
+            if let selected = state.selectedProfilePath,
+               !profiles.contains(where: { $0.path == selected && $0.enabled }) {
+                state.selectedProfilePath = nil
+            }
+            return []
+
+        case .setSelectedProfile(let path):
+            state.selectedProfilePath = path.map { ClaudeProfile.normalized($0) }
+            return []
+
         case .setLoading(let loading):
             state.isLoading = loading
             return []
@@ -3539,6 +3578,7 @@ public final class BoardStore: @unchecked Sendable {
                     remoteMode: settings.remoteMode,
                     boxd: settings.boxd
                 ))
+                dispatch(.setProfiles(settings.effectiveClaudeProfiles))
             }
         }
         // Also load cached links so cards appear instantly

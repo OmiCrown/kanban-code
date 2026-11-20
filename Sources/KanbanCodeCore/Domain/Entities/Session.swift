@@ -21,6 +21,12 @@ public struct Session: Identifiable, Sendable, Equatable {
 
     public static let headlessEntrypoint = "sdk-cli"
 
+    /// The Claude config directory (profile) the transcript lives in, derived
+    /// from `<config>/projects/<folder>/<id>.jsonl`. Nil for other layouts.
+    public var configDirectory: String? {
+        jsonlPath.flatMap(ClaudeProfile.configDirectory(ofTranscript:))
+    }
+
     public init(
         id: String,
         name: String? = nil,

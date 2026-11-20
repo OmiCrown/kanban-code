@@ -44,6 +44,7 @@ struct BoardView: View {
 
     var body: some View {
         boardContent
+            .environment(\.labelledProfiles, store.state.labelledProfiles)
     }
 
     private var activeSubagentsByParent: [String: [KanbanCodeCard]] {

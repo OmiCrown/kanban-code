@@ -436,7 +436,8 @@ extension MasterEngine {
             }
             // `claude --resume` finds the session only under the folder it runs in.
             if assistant == .claude, let path = projectPath {
-                targetDir = "\(platform.claudeProjectsDirectory)/\(SessionFileMover.encodeProjectPath(path))"
+                let projectsDir = ClaudeProfile.projectsDirectory(ofTranscript: sessionPath) ?? platform.claudeProjectsDirectory
+                targetDir = "\(projectsDir)/\(SessionFileMover.encodeProjectPath(path))"
             }
         }
         let sessionStore = registry.store(for: assistant) ?? store.sessionStore

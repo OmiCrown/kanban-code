@@ -103,6 +103,14 @@ public struct KanbanCodeCard: Identifiable, Sendable, Equatable {
         return link.displayTitle
     }
 
+    /// The Claude config directory (profile) of the card's transcript: its
+    /// session's when the session is known, else the path its link recorded.
+    /// Nil for a card without a transcript or one outside the profile layout.
+    public var profileConfigDirectory: String? {
+        if let dir = session?.configDirectory { return dir }
+        return link.sessionLink?.sessionPath.flatMap(ClaudeProfile.configDirectory(ofTranscript:))
+    }
+
     /// Project name extracted from project path.
     public var projectName: String? {
         guard let path = link.projectPath ?? session?.projectPath else { return nil }

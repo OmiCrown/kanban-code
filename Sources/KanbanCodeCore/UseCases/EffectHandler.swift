@@ -214,7 +214,12 @@ public actor EffectHandler {
             break
 
         case .updateSessionIndex(let sessionId, let name):
-            try? SessionIndexReader.updateSummary(sessionId: sessionId, summary: name)
+            // The index lives in the profile the session's transcript is in.
+            let transcript = (try? await coordinationStore.readLinks())?
+                .first { $0.sessionLink?.sessionId == sessionId }?.sessionLink?.sessionPath
+            try? SessionIndexReader.updateSummary(
+                sessionId: sessionId, summary: name,
+                claudeDir: transcript.flatMap(ClaudeProfile.projectsDirectory(ofTranscript:)))
 
         case .moveSessionFile(let cardId, let sessionId, let oldPath, let newProjectPath):
             do {

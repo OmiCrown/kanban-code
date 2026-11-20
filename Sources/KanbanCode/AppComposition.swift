@@ -19,6 +19,8 @@ final class AppComposition {
     let orchestrator: BackgroundOrchestrator
     let settingsStore: SettingsStore
     let assistantRegistry: CodingAssistantRegistry
+    /// Reads the sessions of every enabled Claude profile.
+    let claudeDiscovery: ProfileSessionDiscovery
     let launcher: LaunchSession
     let tmuxAdapter: RoutingTmuxAdapter
     let boxdSupervisor: BoxdMachineSupervisor
@@ -31,7 +33,7 @@ final class AppComposition {
     let attentionCenter: AttentionCenter
 
     private init() {
-        let claudeDiscovery = ClaudeCodeSessionDiscovery()
+        let claudeDiscovery = ProfileSessionDiscovery(profiles: Self.readClaudeProfiles())
         let claudeDetector = ClaudeCodeActivityDetector()
         let claudeStore = ClaudeCodeSessionStore()
         let geminiDiscovery = GeminiSessionDiscovery()
@@ -190,6 +192,7 @@ final class AppComposition {
         NotificationCenter.default.addObserver(forName: .kanbanCodeSettingsChanged, object: nil, queue: .main) { _ in
             let peers = Self.readPeers()
             Task { await peerSync.setPeers(peers) }
+            claudeDiscovery.setProfiles(Self.readClaudeProfiles())
         }
         let agentSync = AgentSyncEngine(identity: identity) { [peerSync] in await peerSync.syncPeers() }
         Task.detached { await agentSync.run() }
@@ -292,6 +295,7 @@ final class AppComposition {
         self.launcher = launch
         self.tmuxAdapter = tmux
         self.boxdSupervisor = supervisor
+        self.claudeDiscovery = claudeDiscovery
         self.engine = engine
         self.peerSync = peerSync
         self.agentSync = agentSync
@@ -307,6 +311,13 @@ final class AppComposition {
         let path = NSHomeDirectory() + "/.kanban-code/settings.json"
         let settings = FileManager.default.contents(atPath: path).flatMap { try? JSONDecoder().decode(Settings.self, from: $0) }
         return settings?.notifications ?? NotificationSettings()
+    }
+
+    /// The Claude profiles the app reads, from the settings file.
+    private static func readClaudeProfiles() -> [ClaudeProfile] {
+        let path = NSHomeDirectory() + "/.kanban-code/settings.json"
+        let settings = FileManager.default.contents(atPath: path).flatMap { try? JSONDecoder().decode(Settings.self, from: $0) }
+        return (settings ?? Settings()).effectiveClaudeProfiles
     }
 
     /// Settings > Peers, read straight from the file.

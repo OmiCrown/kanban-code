@@ -59,6 +59,33 @@ public enum HookRestorer {
 
     // MARK: - Restore
 
+    /// Adds the missing Kanban entries to the settings of a profile whose
+    /// Kanban integration is on. The profile's own `integration` switch is
+    /// its opt-in, so nothing is recorded in `kanbanHome`. A profile without
+    /// the switch, a missing folder and an unparseable file are left alone.
+    @discardableResult
+    public static func restoreMissing(
+        inProfile profile: ClaudeProfile,
+        kanbanHome: String = defaultKanbanHome
+    ) -> [String] {
+        guard profile.integration, profile.exists else { return [] }
+        let path = profile.settingsPath
+        let original = FileManager.default.contents(atPath: path)
+        var root: [String: Any] = [:]
+        if let original {
+            guard let parsed = (try? JSONSerialization.jsonObject(with: original)) as? [String: Any] else { return [] }
+            root = parsed
+        }
+        let restored = merge(into: &root, for: .claude, kanbanHome: kanbanHome)
+        ensureScripts(for: .claude, kanbanHome: kanbanHome)
+        guard !restored.isEmpty,
+              FileManager.default.contents(atPath: path) == original,
+              let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
+              (try? writeSettings(data, to: path)) != nil
+        else { return [] }
+        return restored
+    }
+
     /// Adds the missing Kanban entries for an opted-in assistant and
     /// returns their names (empty when nothing was missing or written).
     /// A settings folder that does not exist or a file that does not parse

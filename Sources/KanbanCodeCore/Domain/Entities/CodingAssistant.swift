@@ -124,8 +124,18 @@ public enum CodingAssistant: String, Codable, Sendable, CaseIterable {
     /// `.activelyWorking` for any recently-modified Claude session, and the composite
     /// detector's highest-priority merge will let that win over the Claude detector's
     /// correct state. Symptom: archived Claude cards un-archive themselves.
+    ///
+    /// Claude Code also runs under profile directories such as
+    /// `~/.claude-Client`, so for Claude a directory component that starts
+    /// with `.claude-` counts as well.
     public func owns(sessionPath: String) -> Bool {
-        sessionPath.contains("/\(configDirName)/")
+        if self == .claude {
+            // The last component is the file, not a directory.
+            return sessionPath.split(separator: "/").dropLast().contains {
+                $0 == ".claude" || $0.hasPrefix(".claude-")
+            }
+        }
+        return sessionPath.contains("/\(configDirName)/")
     }
 
     /// The assistant whose config directory contains this session path, or nil

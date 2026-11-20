@@ -31,6 +31,14 @@ struct CardView: View {
     var enabledAssistants: [CodingAssistant] = []
     var onMigrateAssistant: (CodingAssistant) -> Void = { _ in }
 
+    @Environment(\.labelledProfiles) private var labelledProfiles
+
+    /// The profile of the card's transcript, while profiles are labelled.
+    private var cardProfile: ClaudeProfile? {
+        guard let dir = card.profileConfigDirectory.map({ ClaudeProfile.normalized($0) }) else { return nil }
+        return labelledProfiles.first { $0.path == dir }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // Title
@@ -43,6 +51,9 @@ struct CardView: View {
 
             // Project + branch + link icons
             HStack(spacing: 4) {
+                if let cardProfile {
+                    ProfilePill(profile: cardProfile)
+                }
                 if let projectName = card.projectName {
                     Label(projectName, systemImage: "folder")
                         .font(.app(.caption))

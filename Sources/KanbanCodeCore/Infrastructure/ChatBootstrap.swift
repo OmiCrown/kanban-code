@@ -27,10 +27,12 @@ public enum ChatBootstrap {
         }
     }
 
-    private static func ensureSkillSymlink(repoRoot: String?) {
+    /// Links the bundled `kanban-code` skill into a skills folder: `~/.claude/skills`
+    /// by default, or the `skills` folder of another Claude profile.
+    public static func ensureSkillSymlink(skillsDirectory: String? = nil, repoRoot: String?) {
         let fm = FileManager.default
         let home = NSHomeDirectory()
-        let skillsDir = (home as NSString).appendingPathComponent(".claude/skills")
+        let skillsDir = skillsDirectory ?? (home as NSString).appendingPathComponent(".claude/skills")
         let link = (skillsDir as NSString).appendingPathComponent("kanban-code")
 
         // If the link already resolves to a readable SKILL.md we're done.
@@ -60,6 +62,14 @@ public enum ChatBootstrap {
         } catch {
             KanbanCodeLog.warn("bootstrap", "ensureSkillSymlink failed: \(error)")
         }
+    }
+
+    /// Removes the `kanban-code` link made by `ensureSkillSymlink`. Only a
+    /// symbolic link goes: a real folder of that name belongs to the user.
+    public static func removeSkillSymlink(skillsDirectory: String) {
+        let link = (skillsDirectory as NSString).appendingPathComponent("kanban-code")
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: link)) != nil else { return }
+        try? FileManager.default.removeItem(atPath: link)
     }
 
     private static func locateRepoRoot(override: String?) -> String? {

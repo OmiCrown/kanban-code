@@ -3,7 +3,18 @@ import Foundation
 /// Implements SessionStore for Claude Code .jsonl files.
 public final class ClaudeCodeSessionStore: SessionStore, @unchecked Sendable {
 
-    public init() {}
+    /// Projects directory `writeSession` writes into. `writeSession` has no
+    /// source transcript (it imports another assistant's conversation), so
+    /// it uses `~/.claude/projects` unless a directory is given.
+    private let claudeDir: String?
+
+    public init() {
+        self.claudeDir = nil
+    }
+
+    public init(claudeDir: String?) {
+        self.claudeDir = claudeDir
+    }
 
     public func readTranscript(sessionPath: String) async throws -> [ConversationTurn] {
         try await TranscriptReader.readTurns(from: sessionPath)
@@ -57,7 +68,7 @@ public final class ClaudeCodeSessionStore: SessionStore, @unchecked Sendable {
     }
 
     public func writeSession(turns: [ConversationTurn], sessionId: String, projectPath: String?) async throws -> String {
-        let base = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/projects")
+        let base = claudeDir ?? (NSHomeDirectory() as NSString).appendingPathComponent(".claude/projects")
         let encodedPath: String
         if let projectPath {
             encodedPath = SessionFileMover.encodeProjectPath(projectPath)

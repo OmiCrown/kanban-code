@@ -12,7 +12,10 @@ public enum SessionFileMover {
         fromPath: String,
         toProjectPath: String
     ) throws -> String {
-        let projectsDir = NSHomeDirectory() + "/.claude/projects"
+        // The session stays in the profile it lives in; only a path outside
+        // the `<config>/projects/<folder>/<file>` layout falls back to ~/.claude.
+        let projectsDir = ClaudeProfile.projectsDirectory(ofTranscript: fromPath)
+            ?? NSHomeDirectory() + "/.claude/projects"
         let targetDirName = encodeProjectPath(toProjectPath)
         let targetDir = projectsDir + "/" + targetDirName
         let targetPath = targetDir + "/" + sessionId + ".jsonl"

@@ -709,7 +709,9 @@ public final class MasterEngine {
         if assistant == .claude,
            let sessionLink = card.link.sessionLink,
            let sessionPath = sessionLink.sessionPath {
-            let expectedDir = platform.claudeProjectsDirectory + "/" + SessionFileMover.encodeProjectPath(projectPath)
+            // The session's own profile, so a session of `.claude-Client` is not pulled into `~/.claude`.
+            let projectsDir = ClaudeProfile.projectsDirectory(ofTranscript: sessionPath) ?? platform.claudeProjectsDirectory
+            let expectedDir = projectsDir + "/" + SessionFileMover.encodeProjectPath(projectPath)
             let expectedPath = expectedDir + "/" + sessionId + ".jsonl"
             if sessionPath != expectedPath,
                FileManager.default.fileExists(atPath: sessionPath) {
