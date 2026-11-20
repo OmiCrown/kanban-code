@@ -74,7 +74,11 @@ struct CardDetailView: View {
 
     @AppStorage("preferredEditorBundleId") private var editorBundleId: String = "dev.zed.Zed"
     @AppStorage("sessionDetailFontSize") private var sessionDetailFontSize: Double = 12
-    @AppStorage("preferChatView") private var preferChatView = false
+    /// This card's choice, or the default of the app for a card with none.
+    private var preferChatView: Bool {
+        get { ChatViewPreferences.shared.prefersChat(cardId: card.id) }
+        nonmutating set { ChatViewPreferences.shared.setPrefersChat(newValue, cardId: card.id) }
+    }
 
     @State private var turns: [ConversationTurn] = []
     @State private var isLoadingHistory = false
@@ -1020,7 +1024,7 @@ struct CardDetailView: View {
                 .overlay(alignment: .topTrailing) {
                     if isClaudeTabSelected, openConversation == nil {
                     Button {
-                        preferChatView.toggle()
+                        preferChatView = !preferChatView
                         if !preferChatView {
                             terminalGrabFocus = true
                         }

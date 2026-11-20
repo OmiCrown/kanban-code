@@ -845,7 +845,7 @@ struct ContentView: View {
             drafts.add(urls, cardId: card.id, key: PromptFileDrafts.conversationKey(cardId: card.id, conversationId: conversationId))
             return
         }
-        if UserDefaults.standard.bool(forKey: "preferChatView") {
+        if ChatViewPreferences.shared.prefersChat(cardId: card.id) {
             drafts.add(urls, cardId: card.id, key: PromptFileDrafts.mainKey(cardId: card.id))
             return
         }
@@ -2278,7 +2278,7 @@ struct ContentView: View {
             if let card = store.state.selectedCard,
                let session = card.link.tmuxLink?.sessionName,
                card.activityState == .activelyWorking || card.activityState == .idleWaiting {
-                if UserDefaults.standard.bool(forKey: "preferChatView") {
+                if ChatViewPreferences.shared.prefersChat(cardId: card.id) {
                     Task { try? await AppServices.tmux.sendInterrupt(sessionName: session) }
                     return
                 }

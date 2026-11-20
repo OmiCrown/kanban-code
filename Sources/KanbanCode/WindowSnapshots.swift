@@ -64,7 +64,7 @@ enum WindowSnapshots {
             }
             KanbanCodeLog.info("snapshots", line)
         case ("chatview", 2):
-            UserDefaults.standard.set(words[1] == "on", forKey: "preferChatView")
+            ChatViewPreferences.shared.setDefault(words[1] == "on")
         case ("drop", 3):
             guard let data = FileManager.default.contents(atPath: words[2]) else { return }
             if let conversationId = store.state.openConversations[words[1]] {
