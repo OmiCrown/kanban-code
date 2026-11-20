@@ -87,11 +87,13 @@ public enum RunningSessionReader {
         text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
-    /// `ps -o lstart=` for the pid, as Claude writes `procStart`.
+    /// `ps -o lstart=` for the pid, as Claude writes `procStart`: in English
+    /// and UTC, whatever the user's language and time zone are.
     private static func startText(ofPid pid: Int32) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
         process.arguments = ["-o", "lstart=", "-p", String(pid)]
+        process.environment = ["LC_ALL": "C", "TZ": "UTC"]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice

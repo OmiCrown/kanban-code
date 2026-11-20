@@ -3,7 +3,7 @@ import Testing
 
 @testable import KanbanCodeCore
 
-@Suite("Running Claude instances read from a profile's sessions folder")
+@Suite("Running Claude instances read from a profile's sessions folder", .serialized)
 struct RunningSessionReaderTests {
     private struct Rig {
         let root: String
@@ -117,6 +117,34 @@ struct RunningSessionReaderTests {
         #expect(RunningSessionReader.processIsAlive(pid: me, procStart: nil))
         #expect(!RunningSessionReader.processIsAlive(pid: me, procStart: "Mon Jan  1 00:00:00 1990"))
         #expect(!RunningSessionReader.processIsAlive(pid: 2_000_000_000, procStart: nil))
+    }
+
+    /// Claude writes `procStart` in English and UTC. A user whose shell is in
+    /// another language and time zone must still see their processes alive.
+    @Test("the start time is compared in English and UTC whatever the user's locale and zone")
+    func processStartIgnoresLocaleAndZone() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-o", "lstart=", "-p", String(getpid())]
+        process.environment = ["LC_ALL": "C", "TZ": "UTC"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let expected = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(!expected.isEmpty)
+
+        let oldZone = getenv("TZ").map { String(cString: $0) }
+        let oldLocale = getenv("LC_ALL").map { String(cString: $0) }
+        setenv("TZ", "Pacific/Auckland", 1)
+        setenv("LC_ALL", "uk_UA.UTF-8", 1)
+        defer {
+            if let oldZone { setenv("TZ", oldZone, 1) } else { unsetenv("TZ") }
+            if let oldLocale { setenv("LC_ALL", oldLocale, 1) } else { unsetenv("LC_ALL") }
+        }
+
+        #expect(RunningSessionReader.processIsAlive(pid: getpid(), procStart: expected))
     }
 
     @Test("the ids of running sessions come back as a set")
