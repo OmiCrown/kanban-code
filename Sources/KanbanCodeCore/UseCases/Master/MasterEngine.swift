@@ -123,6 +123,7 @@ public final class MasterEngine {
         assistant: CodingAssistant = .claude,
         serviceIdOverride: String? = nil,
         modelOverride: String? = nil,
+        launcherCommand: String? = nil,
         machineChoice: BoxdMachineChoice? = nil,
         keepSelection: Bool = false,
         humanPrompt: Bool = false,
@@ -334,6 +335,32 @@ public final class MasterEngine {
                     )
                 }
 
+                // Only a local Claude card runs on a named launcher; remote
+                // (ssh, boxd, mutagen) and the other assistants use plain
+                // `claude`, and store nothing on the link.
+                let chosenLauncher: String?
+                if assistant == .claude, !isRemote {
+                    let resolved = ClaudeLauncherResolver.forLaunch(
+                        explicit: launcherCommand,
+                        linkLauncherCommand: cardLink?.launcherCommand,
+                        hasSession: cardLink?.sessionLink != nil,
+                        projectPath: projectPath,
+                        profiles: settings?.claudeProfiles ?? [],
+                        launchers: settings?.claudeLaunchers ?? [])
+                    // A blank or whitespace-only choice never reaches the
+                    // launcher; plain `claude` runs instead, and the card
+                    // stores nothing for it.
+                    let effective = resolved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? ClaudeLauncherResolver.plain
+                        : resolved
+                    store.dispatch(.setLauncherCommand(
+                        cardId: cardId,
+                        command: ClaudeLauncherResolver.commandToStore(effective)))
+                    chosenLauncher = effective
+                } else {
+                    chosenLauncher = nil
+                }
+
                 let tmuxName = try await launcher.launch(
                     sessionName: predictedTmuxName,
                     projectPath: launchPath,
@@ -347,7 +374,8 @@ public final class MasterEngine {
                     preamble: preamble,
                     assistant: assistant,
                     service: resolvedService,
-                    modelOverride: effectiveModelOverride
+                    modelOverride: effectiveModelOverride,
+                    launcherCommand: chosenLauncher
                 )
                 KanbanCodeLog.info("launch", "Tmux session created: \(tmuxName)")
                 if let preparation = boxdPreparation, let boxdSupervisor {
@@ -973,7 +1001,11 @@ public final class MasterEngine {
                     preamble: preamble,
                     assistant: assistant,
                     service: resolvedService,
-                    modelOverride: effectiveModelOverride
+                    modelOverride: effectiveModelOverride,
+                    // A card resumes with what it stored; nil is plain
+                    // `claude`. Remote and non-Claude cards never carry a
+                    // stored launcher, so they always resume plain too.
+                    launcherCommand: (assistant == .claude && !isRemote) ? card.link.launcherCommand : nil
                 )
                 KanbanCodeLog.info("resume", "Resume launched for card=\(cardId.prefix(12)) actualTmux=\(actualTmuxName)")
                 if let preparation = boxdPreparation, let boxdSupervisor {
