@@ -150,4 +150,20 @@ struct ClaudeProfileTests {
         let result = ClaudeProfile.merged(stored: stored, found: ["/Users/test", "/"], home: home)
         #expect(result.map(\.path) == ["/Users/test/.claude", "/Users/test/.claude-A"])
     }
+
+    @Test func profileLauncherIdRoundTrips() throws {
+        let profile = ClaudeProfile(path: "/Users/test/.claude-A", launcherId: "codemie", home: home)
+        let back = try JSONDecoder().decode(ClaudeProfile.self, from: JSONEncoder().encode(profile))
+        #expect(back.launcherId == "codemie")
+    }
+
+    @Test func oldProfileDecodesWithNilLauncherId() throws {
+        let json = #"{"path": "/Users/test/.claude-A", "enabled": true}"#
+        let profile = try JSONDecoder().decode(ClaudeProfile.self, from: Data(json.utf8))
+        #expect(profile.launcherId == nil)
+        let blank = #"{"path": "/Users/test/.claude-A", "launcherId": "  "}"#
+        #expect(try JSONDecoder().decode(ClaudeProfile.self, from: Data(blank.utf8)).launcherId == nil)
+        let bad = #"{"path": "/Users/test/.claude-A", "launcherId": 5}"#
+        #expect(try JSONDecoder().decode(ClaudeProfile.self, from: Data(bad.utf8)).launcherId == nil)
+    }
 }

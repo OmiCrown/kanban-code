@@ -22,6 +22,9 @@ public struct ClaudeProfile: Codable, Sendable, Equatable, Identifiable {
     /// GitHub owners (users and organizations) that profile's repositories may
     /// have, besides `githubUser`. Empty switches the owner check off.
     public var githubOwners: [String]
+    /// The id of the `ClaudeLauncher` this profile's projects start with by
+    /// default; nil means plain `claude`.
+    public var launcherId: String?
 
     public var id: String { path }
 
@@ -34,6 +37,7 @@ public struct ClaudeProfile: Codable, Sendable, Equatable, Identifiable {
         githubUser: String? = nil,
         projectRoots: [String] = [],
         githubOwners: [String] = [],
+        launcherId: String? = nil,
         home: String = NSHomeDirectory()
     ) {
         let normalizedPath = Self.normalized(path, home: home)
@@ -45,6 +49,7 @@ public struct ClaudeProfile: Codable, Sendable, Equatable, Identifiable {
         self.githubUser = githubUser
         self.projectRoots = projectRoots.map { Self.normalized($0, home: home) }
         self.githubOwners = githubOwners
+        self.launcherId = launcherId
     }
 
     public var projectsDirectory: String { path + "/projects" }
@@ -84,7 +89,7 @@ public struct ClaudeProfile: Codable, Sendable, Equatable, Identifiable {
     // MARK: - Decoding (per field, one bad value never drops the profile)
 
     private enum CodingKeys: String, CodingKey {
-        case path, name, colorHex, enabled, integration, githubUser, projectRoots, githubOwners
+        case path, name, colorHex, enabled, integration, githubUser, projectRoots, githubOwners, launcherId
     }
 
     public init(from decoder: Decoder) throws {
@@ -103,6 +108,9 @@ public struct ClaudeProfile: Codable, Sendable, Equatable, Identifiable {
         projectRoots = ((try? c.decodeIfPresent([String].self, forKey: .projectRoots)) ?? nil)?
             .map { Self.normalized($0) } ?? []
         githubOwners = ((try? c.decodeIfPresent([String].self, forKey: .githubOwners)) ?? nil) ?? []
+        let launcher = ((try? c.decodeIfPresent(String.self, forKey: .launcherId)) ?? nil)?
+            .trimmingCharacters(in: .whitespaces)
+        launcherId = launcher?.isEmpty == false ? launcher : nil
     }
 
     // MARK: - Paths
