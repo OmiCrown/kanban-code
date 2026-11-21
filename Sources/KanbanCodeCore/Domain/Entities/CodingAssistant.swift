@@ -192,15 +192,18 @@ public enum CodingAssistant: String, Codable, Sendable, CaseIterable {
     ///
     /// Without service: `claude --dangerously-skip-permissions --worktree foo`
     /// With service:    `ollama launch claude --model qwen3 -- --dangerously-skip-permissions --worktree foo`
+    ///
+    /// `binaryOverride` replaces `claude` for Claude only (e.g. `codemie-claude`); the flags follow it.
     public func launchCommand(
         skipPermissions: Bool,
         worktreeName: String?,
         service: APIService? = nil,
-        modelOverride: String? = nil
+        modelOverride: String? = nil,
+        binaryOverride: String? = nil
     ) -> String {
         var prefix: [String] = []
         if let launcher = service?.launcherPrefix { prefix.append(contentsOf: launcher.split(separator: " ").map(String.init)) }
-        prefix.append(cliCommand)
+        prefix.append(self == .claude ? (binaryOverride ?? cliCommand) : cliCommand)
         if let model = modelOverride ?? service?.modelFlag {
             prefix += ["--model", shellEscapeCommandArgument(model)]
         }
@@ -226,11 +229,12 @@ public enum CodingAssistant: String, Codable, Sendable, CaseIterable {
         sessionId: String,
         skipPermissions: Bool,
         service: APIService? = nil,
-        modelOverride: String? = nil
+        modelOverride: String? = nil,
+        binaryOverride: String? = nil
     ) -> String {
         var prefix: [String] = []
         if let launcher = service?.launcherPrefix { prefix.append(contentsOf: launcher.split(separator: " ").map(String.init)) }
-        prefix.append(cliCommand)
+        prefix.append(self == .claude ? (binaryOverride ?? cliCommand) : cliCommand)
         if let model = modelOverride ?? service?.modelFlag {
             prefix += ["--model", shellEscapeCommandArgument(model)]
         }
