@@ -6,6 +6,7 @@ import KanbanCodeCore
 /// Code may edit `settings.json` (hooks, statusline, vault guard, skill).
 struct ProfilesSettingsView: View {
     @State private var profiles: [ClaudeProfile] = []
+    @State private var launchers: [ClaudeLauncher] = []
     /// Found on disk but not confirmed by the owner yet.
     @State private var newPaths: Set<String> = []
     @State private var errors: [String: String] = [:]
@@ -88,6 +89,7 @@ struct ProfilesSettingsView: View {
                  : "Adds the Kanban hooks, a statusline that records context usage (your own statusline keeps running, wrapped), the vault guard and the kanban-code skill to \(abbreviated(value.settingsPath)). Turning it off removes exactly these and restores your statusline.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+            launcherPicker(for: profile)
             githubFields(for: profile)
 
             if let error = errors[value.path] {
@@ -96,6 +98,28 @@ struct ProfilesSettingsView: View {
                     .foregroundStyle(.red)
                     .textSelection(.enabled)
             }
+        }
+    }
+
+    /// The command new cards of this profile's projects start with. An id that
+    /// names no launcher shows as Claude Code (it launches plain) and stays
+    /// stored until the user picks something.
+    private func launcherPicker(for profile: Binding<ClaudeProfile>) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Picker("Launch with", selection: Binding<String?>(
+                get: {
+                    ClaudeLauncherEditing.popupSelection(
+                        launcherId: profile.wrappedValue.launcherId, launchers: launchers)
+                },
+                set: { profile.wrappedValue.launcherId = $0; scheduleSave() })) {
+                Text(ClaudeLauncherEditing.plainName).tag(String?.none)
+                ForEach(launchers) { launcher in
+                    Text(launcher.name).tag(String?.some(launcher.id))
+                }
+            }
+            Text("The default command for cards started in this profile's project folders. A card can still pick another when it starts. Add commands in Assistants.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
     }
 
@@ -166,6 +190,7 @@ struct ProfilesSettingsView: View {
         let known = Set(stored.map(\.path))
         newPaths = Set(merged.filter { !known.contains($0.path) && !$0.isDefault }.map(\.path))
         profiles = merged
+        launchers = settings?.claudeLaunchers ?? []
         loaded = true
     }
 

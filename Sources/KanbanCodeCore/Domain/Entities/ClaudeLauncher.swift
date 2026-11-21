@@ -70,3 +70,57 @@ public enum ClaudeLauncherResolver {
         return defaultCommand(forProjectPath: projectPath, profiles: profiles, launchers: launchers)
     }
 }
+
+/// The rules of the launcher list editor in Settings, kept out of the views.
+/// An empty command is never accepted: nothing downstream guards it.
+public enum ClaudeLauncherEditing {
+    /// The name shown for plain `claude`, which is not a list entry.
+    public static let plainName = "Claude Code"
+
+    /// A new launcher with a fresh id, or nil when the command is empty.
+    /// An empty name falls back to the command.
+    public static func newLauncher(name: String, command: String) -> ClaudeLauncher? {
+        let command = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else { return nil }
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ClaudeLauncher(
+            id: UUID().uuidString, name: name.isEmpty ? command : name, command: command)
+    }
+
+    /// `launcher` with the edited texts: trimmed, the id unchanged (a rename keeps
+    /// the profiles that point at it). An empty field keeps its old value.
+    public static func edited(_ launcher: ClaudeLauncher, name: String, command: String) -> ClaudeLauncher {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let command = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = launcher
+        if !name.isEmpty { result.name = name }
+        if !command.isEmpty { result.command = command }
+        return result
+    }
+
+    /// The list to store: texts trimmed, entries with an empty command dropped,
+    /// an empty name replaced by the command, an empty or repeated id replaced
+    /// by a fresh one.
+    public static func cleaned(_ launchers: [ClaudeLauncher]) -> [ClaudeLauncher] {
+        var seen = Set<String>()
+        var result: [ClaudeLauncher] = []
+        for launcher in launchers {
+            let command = launcher.command.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !command.isEmpty else { continue }
+            let name = launcher.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            var id = launcher.id
+            if id.isEmpty || seen.contains(id) { id = UUID().uuidString }
+            seen.insert(id)
+            result.append(ClaudeLauncher(id: id, name: name.isEmpty ? command : name, command: command))
+        }
+        return result
+    }
+
+    /// The launcher id a profile's popup shows: nil (plain Claude Code) when the
+    /// profile has none or names a launcher that no longer exists. The stored id
+    /// is not touched.
+    public static func popupSelection(launcherId: String?, launchers: [ClaudeLauncher]) -> String? {
+        guard let launcherId, launchers.contains(where: { $0.id == launcherId }) else { return nil }
+        return launcherId
+    }
+}

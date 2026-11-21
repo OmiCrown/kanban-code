@@ -256,6 +256,9 @@ struct AssistantsSettingsView: View {
     @State private var commandsLoaded = false
     @State private var commandsSaveTask: Task<Void, Never>?
     @State private var savedCommands: [String: AssistantCommandTemplate] = [:]
+    @State private var claudeLaunchers: [ClaudeLauncher] = []
+    @State private var savedLaunchers: [ClaudeLauncher] = []
+    @State private var launchersSaveTask: Task<Void, Never>?
     @State private var remoteClaudeToken = ""
     @State private var remoteTokenSaveTask: Task<Void, Never>?
     @State private var claudeRuntime: SessionRuntime = .tmux
@@ -393,6 +396,7 @@ struct AssistantsSettingsView: View {
                     launchCommandRows(for: assistant)
                     if assistant == .claude {
                         runtimeRows
+                        ClaudeLaunchersSettingsView(launchers: $claudeLaunchers)
                         remoteLoginRows
                     }
                 } header: {
@@ -416,6 +420,7 @@ struct AssistantsSettingsView: View {
         .padding()
         .task { await loadServices() }
         .onChange(of: assistantCommands) { scheduleCommandsSave() }
+        .onChange(of: claudeLaunchers) { scheduleLaunchersSave() }
         .sheet(item: $serviceSheetRequest) { request in
             AddAPIServiceSheet(assistant: request.assistant, existingService: request.existingService) { service in
                 if let existing = request.existingService,
@@ -565,6 +570,25 @@ struct AssistantsSettingsView: View {
         }
     }
 
+    /// Writes only `claudeLaunchers` (and keeps `launchersSeeded`), so the
+    /// profile screen's fields and the other settings stay as they are.
+    private func scheduleLaunchersSave() {
+        guard commandsLoaded else { return }
+        let launchers = ClaudeLauncherEditing.cleaned(claudeLaunchers)
+        guard launchers != savedLaunchers else { return }
+        savedLaunchers = launchers
+        launchersSaveTask?.cancel()
+        launchersSaveTask = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            var settings = (try? await settingsStore.read()) ?? Settings()
+            settings.claudeLaunchers = launchers
+            settings.launchersSeeded = true
+            try? await settingsStore.write(settings)
+            NotificationCenter.default.post(name: .kanbanCodeSettingsChanged, object: nil)
+        }
+    }
+
     /// Drops entries that carry no instruction: the bare placeholder or a
     /// blank local command with no remote command.
     private func normalizedCommands() -> [String: AssistantCommandTemplate] {
@@ -591,6 +615,8 @@ struct AssistantsSettingsView: View {
         defaultAPIServiceIds = settings.defaultAPIServiceIds
         assistantCommands = settings.assistantCommands
         savedCommands = settings.assistantCommands
+        claudeLaunchers = settings.claudeLaunchers
+        savedLaunchers = settings.claudeLaunchers
         remoteClaudeToken = settings.boxd?.claudeOAuthToken ?? ""
         claudeRuntime = settings.runtime(for: .claude)
         commandsLoaded = true
