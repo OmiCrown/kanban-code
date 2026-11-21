@@ -168,36 +168,35 @@ struct MasterLauncherTests {
         #expect(link?.launcherCommand == "codemie-claude")
     }
 
-    @Test("a remote (mutagen) launch stores nothing and runs plain claude")
-    func remoteStoresNothing() async throws {
-        // The engine is supposed to skip the resolve/store step when
-        // `isRemote` is true. A mutagen-configured launch, with the project
-        // under `remote.localPath`, takes the engine's remote branch so the
-        // guard is actually exercised in a running engine. The mutagen CLI
-        // is expected to be absent in the test environment; its calls are
-        // caught by the engine's `try?`, and `RemoteShellManager.deploy()`
-        // only writes an idempotent wrapper under `~/.kanban-code/remote/`.
-        let rig = try makeRig()
-        defer { try? FileManager.default.removeItem(atPath: rig.root) }
-        // Settings has a mutagen remote whose localPath contains the project.
-        var settings = Settings()
-        settings.claudeProfiles = [rig.profile]
-        settings.claudeLaunchers = [.codemie]
-        settings.launchersSeeded = true
-        settings.remoteMode = .mutagen
-        settings.remote = RemoteSettings(
-            host: "invalid.example", remotePath: "/tmp/remote", localPath: rig.root + "/work")
-        try JSONEncoder().encode(settings).write(to: URL(fileURLWithPath: rig.kanbanHome + "/settings.json"))
-        rig.store.dispatch(.createManualTask(Link(
-            id: "card_remote", name: "Remote", projectPath: rig.project, column: .backlog)))
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            rig.engine.launch(
-                cardId: "card_remote", prompt: "", projectPath: rig.project, worktreeName: nil,
-                runRemotely: true
-            ) { _ in done.resume() }
+    @Test("the engine's launch gate: remote and non-Claude skip resolve and store")
+    func remoteStoresNothing() {
+        // A remote launch (ssh, boxd, mutagen) would need the mutagen CLI
+        // or a boxd supervisor to reach from the full engine, and both
+        // write real state on the user's machine. The gate is a pure
+        // static helper, so it is tested directly — the brief's ruling 6
+        // allows this smaller-level cover for the remote case.
+        let profiles = [ClaudeProfile(
+            path: "/h/.claude-x", projectRoots: ["/r/omi"],
+            launcherId: "codemie", home: "/h")]
+        func resolve(isRemote: Bool, assistant: CodingAssistant = .claude) -> String? {
+            MasterEngine.launchCommand(
+                assistant: assistant, isRemote: isRemote,
+                explicit: nil, linkLauncherCommand: nil, hasSession: false,
+                projectPath: "/r/omi/app", profiles: profiles, launchers: [.codemie])
         }
-        #expect(rig.store.state.links["card_remote"]?.launcherCommand == nil)
-        #expect(rig.tmux.lastCommand?.contains("codemie-claude") == false)
+        // Locally the profile default applies.
+        #expect(resolve(isRemote: false) == "codemie-claude")
+        // Remote: the gate skips the resolver entirely.
+        #expect(resolve(isRemote: true) == nil)
+        // A non-Claude assistant is also skipped.
+        #expect(resolve(isRemote: false, assistant: .gemini) == nil)
+        // The blank-guard: a blank choice reads as plain, so no empty
+        // binary name ever reaches `launcher.launch`.
+        #expect(MasterEngine.launchCommand(
+            assistant: .claude, isRemote: false,
+            explicit: "   ", linkLauncherCommand: nil, hasSession: false,
+            projectPath: "/r/omi/app", profiles: profiles, launchers: [.codemie])
+            == ClaudeLauncherResolver.plain)
     }
 
     // MARK: - Resume

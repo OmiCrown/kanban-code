@@ -338,27 +338,19 @@ public final class MasterEngine {
                 // Only a local Claude card runs on a named launcher; remote
                 // (ssh, boxd, mutagen) and the other assistants use plain
                 // `claude`, and store nothing on the link.
-                let chosenLauncher: String?
-                if assistant == .claude, !isRemote {
-                    let resolved = ClaudeLauncherResolver.forLaunch(
-                        explicit: launcherCommand,
-                        linkLauncherCommand: cardLink?.launcherCommand,
-                        hasSession: cardLink?.sessionLink != nil,
-                        projectPath: projectPath,
-                        profiles: settings?.claudeProfiles ?? [],
-                        launchers: settings?.claudeLaunchers ?? [])
-                    // A blank or whitespace-only choice never reaches the
-                    // launcher; plain `claude` runs instead, and the card
-                    // stores nothing for it.
-                    let effective = resolved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? ClaudeLauncherResolver.plain
-                        : resolved
+                let chosenLauncher = Self.launchCommand(
+                    assistant: assistant,
+                    isRemote: isRemote,
+                    explicit: launcherCommand,
+                    linkLauncherCommand: cardLink?.launcherCommand,
+                    hasSession: cardLink?.sessionLink != nil,
+                    projectPath: projectPath,
+                    profiles: settings?.claudeProfiles ?? [],
+                    launchers: settings?.claudeLaunchers ?? [])
+                if let chosenLauncher {
                     store.dispatch(.setLauncherCommand(
                         cardId: cardId,
-                        command: ClaudeLauncherResolver.commandToStore(effective)))
-                    chosenLauncher = effective
-                } else {
-                    chosenLauncher = nil
+                        command: ClaudeLauncherResolver.commandToStore(chosenLauncher)))
                 }
 
                 let tmuxName = try await launcher.launch(
@@ -535,6 +527,35 @@ public final class MasterEngine {
                 completion?(error.localizedDescription)
             }
         }
+    }
+
+    /// The command a local Claude card launches with, nil for every other
+    /// case (remote, non-Claude). Nil skips the resolve/store step, so the
+    /// card keeps no launcher string and `launcher.launch` runs plain `claude`.
+    /// Explicit beats the card's stored command, which beats a session started
+    /// before launchers existed; the fallback is the profile's default, nil
+    /// outside every profile root. A blank or whitespace-only choice reads as
+    /// plain, so nothing upstream has to normalize it.
+    public nonisolated static func launchCommand(
+        assistant: CodingAssistant,
+        isRemote: Bool,
+        explicit: String?,
+        linkLauncherCommand: String?,
+        hasSession: Bool,
+        projectPath: String,
+        profiles: [ClaudeProfile],
+        launchers: [ClaudeLauncher]
+    ) -> String? {
+        guard assistant == .claude, !isRemote else { return nil }
+        let resolved = ClaudeLauncherResolver.forLaunch(
+            explicit: explicit,
+            linkLauncherCommand: linkLauncherCommand,
+            hasSession: hasSession,
+            projectPath: projectPath,
+            profiles: profiles,
+            launchers: launchers)
+        return resolved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? ClaudeLauncherResolver.plain : resolved
     }
 
     /// The error shown when the first prompt of a launch did not reach the
