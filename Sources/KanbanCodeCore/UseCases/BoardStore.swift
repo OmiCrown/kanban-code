@@ -784,6 +784,8 @@ public enum Action: Sendable {
     case relinkSession(cardId: String, sessionLink: SessionLink)
     case sessionModelsScanned([String: String])
     case setCardModel(cardId: String, model: String?)
+    /// The command a card starts Claude with; nil is plain `claude`.
+    case setLauncherCommand(cardId: String, command: String?)
     case archiveCard(cardId: String)
     /// Brings an archived card back to the board.
     case unarchiveCard(cardId: String)
@@ -1483,6 +1485,14 @@ public enum Reducer {
             let resolved = (normalized?.isEmpty ?? true) ? nil : normalized
             guard link.modelOverride != resolved else { return [] }
             link.modelOverride = resolved
+            link.updatedAt = .now
+            state.links[cardId] = link
+            return [.upsertLink(link)]
+
+        case .setLauncherCommand(let cardId, let command):
+            guard var link = state.links[cardId] else { return [] }
+            guard link.launcherCommand != command else { return [] }
+            link.launcherCommand = command
             link.updatedAt = .now
             state.links[cardId] = link
             return [.upsertLink(link)]
@@ -2380,6 +2390,7 @@ public enum Reducer {
             if link.effectiveAssistant != newAssistant {
                 link.apiServiceId = nil
                 link.modelOverride = nil
+                link.launcherCommand = nil
                 if !newAssistant.supportsContextThresholdSelfCompact {
                     link.queuedPrompts?.removeAll { $0.selfCompactThresholdTokens != nil }
                 }
@@ -2739,6 +2750,7 @@ public enum Reducer {
                     }
                     link.parentCardId = existing.parentCardId
                     link.modelOverride = existing.modelOverride
+                    link.launcherCommand = existing.launcherCommand
                     link.selfCompactContextThresholdTokens = existing.selfCompactContextThresholdTokens
                     // The machine record is written by the supervisor, never
                     // by the reconciler. A snapshot taken before the machine

@@ -97,6 +97,7 @@ public enum LinkSync {
         dst.isRemote = src.isRemote
         dst.remote = src.remote
         dst.apiServiceId = src.apiServiceId
+        dst.launcherCommand = src.launcherCommand
         dst.isLaunching = src.isLaunching
         dst.launchedAt = src.launchedAt
         dst.headless = src.headless
@@ -122,6 +123,7 @@ public enum LinkSync {
             && a.isRemote == b.isRemote
             && a.remote == b.remote
             && a.apiServiceId == b.apiServiceId
+            && a.launcherCommand == b.launcherCommand
             && a.isLaunching == b.isLaunching
             && a.launchedAt == b.launchedAt
             && a.headless == b.headless
@@ -135,7 +137,7 @@ public enum LinkSync {
     static let ownedFieldNames: Set<String> = [
         "projectPath", "source", "createdAt", "lastActivity", "sessionLink", "tmuxLink", "worktreeLink",
         "queuedPrompts", "discoveredBranches", "discoveredRepos", "isRemote", "remote", "apiServiceId",
-        "isLaunching", "launchedAt", "headless", "ownerMachine", "migrating",
+        "isLaunching", "launchedAt", "headless", "ownerMachine", "migrating", "launcherCommand",
     ]
     /// Per-machine fields that never travel, plus the sync metadata.
     static let localFieldNames: Set<String> = [

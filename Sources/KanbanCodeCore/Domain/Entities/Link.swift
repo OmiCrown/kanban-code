@@ -214,6 +214,11 @@ public struct Link: Identifiable, Codable, Sendable, Equatable {
     /// Optional assistant model selected specifically for this card.
     public var modelOverride: String?
 
+    /// The command that started this card's Claude session, when it is not
+    /// plain `claude` (for example `codemie-claude`). nil means plain; plain
+    /// is never stored.
+    public var launcherCommand: String?
+
     /// Optional first self-compact nudge threshold selected for this card.
     /// When set, it replaces the global rules and forces `/compact` 200k later.
     public var selfCompactContextThresholdTokens: Int?
@@ -467,6 +472,7 @@ public struct Link: Identifiable, Codable, Sendable, Equatable {
         promptImagePaths: [String]? = nil,
         parentCardId: String? = nil,
         modelOverride: String? = nil,
+        launcherCommand: String? = nil,
         selfCompactContextThresholdTokens: Int? = nil,
         sessionLink: SessionLink? = nil,
         tmuxLink: TmuxLink? = nil,
@@ -508,6 +514,7 @@ public struct Link: Identifiable, Codable, Sendable, Equatable {
         self.promptImagePaths = promptImagePaths
         self.parentCardId = parentCardId
         self.modelOverride = modelOverride
+        self.launcherCommand = launcherCommand
         self.selfCompactContextThresholdTokens = selfCompactContextThresholdTokens
         self.sessionLink = sessionLink
         self.tmuxLink = tmuxLink
@@ -541,7 +548,7 @@ public struct Link: Identifiable, Codable, Sendable, Equatable {
         // Card-level
         case id, name, projectPath, column, createdAt, updatedAt, lastActivity, lastOpenedAt
         case manualOverrides, manuallyArchived, source, promptBody, promptImagePaths, parentCardId, modelOverride
-        case selfCompactContextThresholdTokens
+        case selfCompactContextThresholdTokens, launcherCommand
         case isRemote, remote, isLaunching, launchedAt, sortOrder, pinnedAt, pinnedSortOrder
         case discoveredBranches, discoveredRepos, assistant, apiServiceId, headless
         case ownerMachine, rev, ownerRev, fieldRevs, migrating, deletedAt
@@ -571,6 +578,7 @@ public struct Link: Identifiable, Codable, Sendable, Equatable {
         promptImagePaths = try c.decodeIfPresent([String].self, forKey: .promptImagePaths)
         parentCardId = try c.decodeIfPresent(String.self, forKey: .parentCardId)
         modelOverride = try c.decodeIfPresent(String.self, forKey: .modelOverride)
+        launcherCommand = try c.decodeIfPresent(String.self, forKey: .launcherCommand)
         selfCompactContextThresholdTokens = try c.decodeIfPresent(Int.self, forKey: .selfCompactContextThresholdTokens)
         isRemote = try c.decodeIfPresent(Bool.self, forKey: .isRemote) ?? false
         remote = try? c.decodeIfPresent(RemoteLink.self, forKey: .remote)
@@ -679,6 +687,7 @@ public struct Link: Identifiable, Codable, Sendable, Equatable {
         try c.encodeIfPresent(promptImagePaths, forKey: .promptImagePaths)
         try c.encodeIfPresent(parentCardId, forKey: .parentCardId)
         try c.encodeIfPresent(modelOverride, forKey: .modelOverride)
+        try c.encodeIfPresent(launcherCommand, forKey: .launcherCommand)
         try c.encodeIfPresent(selfCompactContextThresholdTokens, forKey: .selfCompactContextThresholdTokens)
         try c.encode(isRemote, forKey: .isRemote)
         try c.encodeIfPresent(remote, forKey: .remote)

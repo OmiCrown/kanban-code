@@ -37,6 +37,12 @@ public struct Settings: Codable, Sendable {
     /// Claude config directories shown on the board. Merge with
     /// `ClaudeProfile.discover()` through `ClaudeProfile.merged`.
     public var claudeProfiles: [ClaudeProfile]
+    /// Commands that start Claude Code besides plain `claude`. A profile
+    /// picks one as its default through `ClaudeProfile.launcherId`.
+    public var claudeLaunchers: [ClaudeLauncher]
+    /// True once the built-in launcher was added, so a launcher the user
+    /// deleted is not added again on the next load.
+    public var launchersSeeded: Bool
 
     public init(
         projects: [Project] = [],
@@ -61,7 +67,9 @@ public struct Settings: Codable, Sendable {
         assistantRuntimes: [String: SessionRuntime] = [:],
         remoteControl: RemoteControlSettings = RemoteControlSettings(),
         peers: [PeerConfig] = [],
-        claudeProfiles: [ClaudeProfile] = []
+        claudeProfiles: [ClaudeProfile] = [],
+        claudeLaunchers: [ClaudeLauncher] = [],
+        launchersSeeded: Bool = false
     ) {
         self.projects = projects
         self.globalView = globalView
@@ -86,6 +94,8 @@ public struct Settings: Codable, Sendable {
         self.remoteControl = remoteControl
         self.peers = peers
         self.claudeProfiles = claudeProfiles
+        self.claudeLaunchers = claudeLaunchers
+        self.launchersSeeded = launchersSeeded
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -94,6 +104,7 @@ public struct Settings: Codable, Sendable {
         case enabledAssistants
         case apiServices, defaultAPIServiceIds
         case selfCompact, subagents, assistantCommands, assistantRuntimes, remoteControl, peers, claudeProfiles
+        case claudeLaunchers, launchersSeeded
         case skill // backward-compat: old name for promptTemplate
     }
 
@@ -158,6 +169,23 @@ public struct Settings: Codable, Sendable {
         // One unreadable profile entry is skipped, the others stay.
         claudeProfiles = (try? container.decodeIfPresent([LossyProfile].self, forKey: .claudeProfiles))?
             .compactMap(\.profile) ?? []
+        // Seed the built-in launcher once. A list the user emptied stays empty.
+        var launchers = (try? container.decodeIfPresent([LossyLauncher].self, forKey: .claudeLaunchers))?
+            .compactMap(\.launcher) ?? []
+        var seeded = (try? container.decodeIfPresent(Bool.self, forKey: .launchersSeeded)) ?? false
+        if !seeded {
+            if launchers.isEmpty { launchers.append(.codemie) }
+            seeded = true
+        }
+        claudeLaunchers = launchers
+        launchersSeeded = seeded
+    }
+
+    private struct LossyLauncher: Decodable {
+        let launcher: ClaudeLauncher?
+        init(from decoder: Decoder) throws {
+            launcher = try? ClaudeLauncher(from: decoder)
+        }
     }
 
     private struct LossyProfile: Decodable {
@@ -198,6 +226,8 @@ public struct Settings: Codable, Sendable {
         if !claudeProfiles.isEmpty {
             try container.encode(claudeProfiles, forKey: .claudeProfiles)
         }
+        try container.encode(claudeLaunchers, forKey: .claudeLaunchers)
+        try container.encode(launchersSeeded, forKey: .launchersSeeded)
         // Note: "skill" is NOT encoded — only read for backward-compat
     }
 
