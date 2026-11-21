@@ -51,12 +51,13 @@ extension ContentView {
                 promptImagePaths: card.link.promptImagePaths ?? [],
                 assistant: card.link.effectiveAssistant,
                 apiServiceId: card.link.apiServiceId,
-                modelOverride: card.link.modelOverride
+                modelOverride: card.link.modelOverride,
+                launcherCommand: card.link.launcherCommand
             )
         }
     }
 
-    func executeLaunch(cardId: String, prompt: String, projectPath: String, worktreeName: String?, runRemotely: Bool = true, skipPermissions: Bool = true, commandOverride: String? = nil, images: [ImageAttachment] = [], assistant: CodingAssistant = .claude, serviceIdOverride: String? = nil, modelOverride: String? = nil, machineChoice: BoxdMachineChoice? = nil, focusCard: Bool = true, completion: ((String?) -> Void)? = nil) {
+    func executeLaunch(cardId: String, prompt: String, projectPath: String, worktreeName: String?, runRemotely: Bool = true, skipPermissions: Bool = true, commandOverride: String? = nil, images: [ImageAttachment] = [], assistant: CodingAssistant = .claude, serviceIdOverride: String? = nil, modelOverride: String? = nil, launcherCommand: String? = nil, machineChoice: BoxdMachineChoice? = nil, focusCard: Bool = true, completion: ((String?) -> Void)? = nil) {
         engine.launch(
             cardId: cardId,
             prompt: prompt,
@@ -69,6 +70,7 @@ extension ContentView {
             assistant: assistant,
             serviceIdOverride: serviceIdOverride,
             modelOverride: modelOverride,
+            launcherCommand: launcherCommand,
             machineChoice: machineChoice,
             keepSelection: !focusCard,
             humanPrompt: true,
@@ -251,7 +253,8 @@ extension ContentView {
             sessionId: sessionId,
             assistant: card.link.effectiveAssistant,
             apiServiceId: card.link.apiServiceId,
-            modelOverride: card.link.modelOverride
+            modelOverride: card.link.modelOverride,
+            launcherCommand: card.link.launcherCommand
         )
     }
 

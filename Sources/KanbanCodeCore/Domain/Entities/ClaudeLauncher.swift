@@ -53,6 +53,25 @@ public enum ClaudeLauncherResolver {
             .first(where: known.contains) ?? plain
     }
 
+    /// The launch command a launch dialog hands on: nil for assistants that have
+    /// no launchers (Codex, Gemini) and for remote runs, which always use plain
+    /// `claude`. A hand-edited command line decides by its first known binary;
+    /// otherwise the popup's selection. A blank result is plain.
+    public static func choice(
+        commandEdited: Bool,
+        command: String,
+        selected: String,
+        assistant: CodingAssistant,
+        runsRemotely: Bool,
+        launchers: [ClaudeLauncher]
+    ) -> String? {
+        guard assistant == .claude, !runsRemotely else { return nil }
+        let result = commandEdited
+            ? self.command(fromEdited: command, launchers: launchers)
+            : selected.trimmingCharacters(in: .whitespacesAndNewlines)
+        return result.isEmpty ? plain : result
+    }
+
     /// `explicit` wins, then what the card stored. A card that already has a
     /// session was started plain, before launchers existed. Otherwise the
     /// project's default.

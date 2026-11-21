@@ -20,6 +20,8 @@ struct LaunchConfirmationDialog: View {
     let assistant: CodingAssistant
     let initialServiceId: String?
     let modelOverride: String?
+    /// The launch command the card was started with; nil means plain `claude`.
+    let initialLauncherCommand: String?
     @Binding var isPresented: Bool
     /// Boxd machine the user picked. Called just before `onLaunch` when the
     /// launch runs on boxd.
@@ -28,7 +30,7 @@ struct LaunchConfirmationDialog: View {
     var onRemoveMachine: (() -> Void)?
     /// Branch names in use, so a name made from the prompt does not repeat one.
     var takenWorktreeNames: Set<String> = []
-    var onLaunch: (String, Bool, String?, Bool, Bool, String?, [ImageAttachment], String?) -> Void = { _, _, _, _, _, _, _, _ in } // (editedPrompt, createWorktree, worktreeBranch, runRemotely, skipPermissions, commandOverride, images, apiServiceId)
+    var onLaunch: (String, Bool, String?, Bool, Bool, String?, [ImageAttachment], String?, String?) -> Void = { _, _, _, _, _, _, _, _, _ in } // (editedPrompt, createWorktree, worktreeBranch, runRemotely, skipPermissions, commandOverride, images, apiServiceId, launcherCommand)
 
     private let settingsStore = SettingsStore()
     @State private var settings = Settings()
@@ -40,6 +42,10 @@ struct LaunchConfirmationDialog: View {
     @State private var commandEdited: Bool = false
     /// Every command the form made itself; a field with any other text was edited by the user.
     @State private var generatedCommands = GeneratedText()
+    /// The command that starts Claude Code: `claude` or a launcher's command.
+    @State private var selectedLauncher: String
+    /// Set once the user picks a launcher here, or the card brought one.
+    @State private var launcherPicked: Bool
     @State private var worktreeBranch: String = ""
     @State private var createWorktree: Bool
     @State private var runRemotely: Bool
@@ -62,8 +68,9 @@ struct LaunchConfirmationDialog: View {
         assistant: CodingAssistant = .claude,
         initialServiceId: String? = nil,
         modelOverride: String? = nil,
+        initialLauncherCommand: String? = nil,
         isPresented: Binding<Bool>,
-        onLaunch: @escaping (String, Bool, String?, Bool, Bool, String?, [ImageAttachment], String?) -> Void = { _, _, _, _, _, _, _, _ in },
+        onLaunch: @escaping (String, Bool, String?, Bool, Bool, String?, [ImageAttachment], String?, String?) -> Void = { _, _, _, _, _, _, _, _, _ in },
         onMachineChoice: @escaping (BoxdMachineChoice) -> Void = { _ in },
         onRemoveMachine: (() -> Void)? = nil,
         takenWorktreeNames: Set<String> = []
@@ -82,6 +89,9 @@ struct LaunchConfirmationDialog: View {
         self.assistant = assistant
         self.initialServiceId = initialServiceId
         self.modelOverride = modelOverride
+        self.initialLauncherCommand = initialLauncherCommand
+        self._selectedLauncher = State(initialValue: initialLauncherCommand ?? ClaudeLauncherResolver.plain)
+        self._launcherPicked = State(initialValue: initialLauncherCommand != nil)
         self._isPresented = isPresented
         self.onMachineChoice = onMachineChoice
         self.onRemoveMachine = onRemoveMachine
@@ -158,6 +168,32 @@ struct LaunchConfirmationDialog: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
+                        }
+                    }
+
+                    // Launch command picker (Claude Code only, when launchers exist).
+                    // A started card keeps its command, so a resume shows it disabled.
+                    if assistant == .claude && !settings.claudeLaunchers.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Picker("Launch with", selection: Binding(
+                                get: { selectedLauncher },
+                                set: { selectedLauncher = $0; launcherPicked = true }
+                            )) {
+                                Text(ClaudeLauncherEditing.plainName).tag(ClaudeLauncherResolver.plain)
+                                ForEach(settings.claudeLaunchers) { launcher in
+                                    Text(launcher.name).tag(launcher.command)
+                                }
+                            }
+                            .disabled(isResume || effectiveRunRemotely)
+                            if isResume {
+                                Label("A started card keeps its launch command", systemImage: "info.circle")
+                                    .font(.app(.caption2))
+                                    .foregroundStyle(.secondary)
+                            } else if effectiveRunRemotely {
+                                Label("applies to local runs", systemImage: "info.circle")
+                                    .font(.app(.caption2))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
 
@@ -273,6 +309,9 @@ struct LaunchConfirmationDialog: View {
         .onChange(of: prompt) {
             refreshCommand()
         }
+        .onChange(of: selectedLauncher) {
+            refreshCommand()
+        }
         .onChange(of: runRemotely) {
             rememberRunRemotely()
             refreshCommand()
@@ -370,6 +409,7 @@ struct LaunchConfirmationDialog: View {
     private func reloadServices() async {
         let loaded = (try? await settingsStore.read()) ?? Settings()
         settings = loaded
+        applyDefaultLauncher()
         apiServices = loaded.apiServices
         // If the current selection still exists keep it; otherwise fall back to default.
         let currentStillValid = selectedServiceId.flatMap { id in
@@ -383,11 +423,33 @@ struct LaunchConfirmationDialog: View {
         refreshCommand()
     }
 
+    /// Preselects the launcher of the project's profile for a launch, until the
+    /// card or the user has chosen one (a choice whose launcher was deleted in
+    /// Settings is dropped). A resume keeps the card's command.
+    private func applyDefaultLauncher() {
+        guard !isResume else { return }
+        let pickStillListed = selectedLauncher == ClaudeLauncherResolver.plain
+            || settings.claudeLaunchers.contains { $0.command == selectedLauncher }
+        guard !(launcherPicked && pickStillListed) else { return }
+        selectedLauncher = ClaudeLauncherResolver.defaultCommand(
+            forProjectPath: projectPath,
+            profiles: settings.claudeProfiles,
+            launchers: settings.claudeLaunchers)
+    }
+
     private func submitForm() {
         if !isResume {
             guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         }
         let override = commandEdited ? command : nil
+        // A resume keeps the card's own command, which the engine reads.
+        let launcherCommand = isResume ? nil : ClaudeLauncherResolver.choice(
+            commandEdited: commandEdited,
+            command: command,
+            selected: selectedLauncher,
+            assistant: assistant,
+            runsRemotely: effectiveRunRemotely,
+            launchers: settings.claudeLaunchers)
         let branch = worktreeBranch.trimmingCharacters(in: .whitespacesAndNewlines)
         if runsOnBoxd {
             onMachineChoice(machineChoice)
@@ -395,7 +457,7 @@ struct LaunchConfirmationDialog: View {
                 RemoteLaunchOptions.rememberMachineChoice(machineChoice, projectPath: projectPath)
             }
         }
-        onLaunch(prompt, effectiveCreateWorktree, branch.isEmpty ? nil : branch, effectiveRunRemotely, dangerouslySkipPermissions, override, images, selectedServiceId)
+        onLaunch(prompt, effectiveCreateWorktree, branch.isEmpty ? nil : branch, effectiveRunRemotely, dangerouslySkipPermissions, override, images, selectedServiceId, launcherCommand)
         isPresented = false
     }
 
@@ -446,12 +508,15 @@ struct LaunchConfirmationDialog: View {
 
         let template = settings.commandTemplate(for: assistant, remote: effectiveRunRemotely)
         let service = selectedServiceId.flatMap { id in apiServices.first { $0.id == id } }
+        // Remote runs always use plain `claude`.
+        let binaryOverride: String? = assistant == .claude && !effectiveRunRemotely ? selectedLauncher : nil
         if isResume, let sid = sessionId {
             let resumeCmd = assistant.resumeCommand(
                 sessionId: sid,
                 skipPermissions: dangerouslySkipPermissions,
                 service: service,
-                modelOverride: modelOverride
+                modelOverride: modelOverride,
+                binaryOverride: binaryOverride
             )
             let templated = CodingAssistant.applyCommandTemplate(resumeCmd, template: template)
             parts.append("cd \(projectPath) && \(templated)")
@@ -469,7 +534,8 @@ struct LaunchConfirmationDialog: View {
                 skipPermissions: dangerouslySkipPermissions,
                 worktreeName: effectiveWorktreeName,
                 service: service,
-                modelOverride: modelOverride
+                modelOverride: modelOverride,
+                binaryOverride: binaryOverride
             )
             parts.append(CodingAssistant.applyCommandTemplate(launchCmd, template: template))
         }

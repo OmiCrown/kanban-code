@@ -12,8 +12,8 @@ struct NewTaskDialog: View {
     var enabledAssistants: [CodingAssistant] = CodingAssistant.allCases
     /// (prompt, projectPath, title, startImmediately, images) — creates task without an assistant set
     var onCreate: (String, String?, String?, Bool, [ImageAttachment]) -> Void = { _, _, _, _, _ in }
-    /// (prompt, projectPath, title, createWorktree, runRemotely, skipPermissions, commandOverride, images, assistant, apiServiceId, worktreeBranch) — creates and launches directly (skips LaunchConfirmation)
-    var onCreateAndLaunch: (String, String?, String?, Bool, Bool, Bool, String?, [ImageAttachment], CodingAssistant, String?, String?) -> Void = { _, _, _, _, _, _, _, _, _, _, _ in }
+    /// (prompt, projectPath, title, createWorktree, runRemotely, skipPermissions, commandOverride, images, assistant, apiServiceId, worktreeBranch, launcherCommand) — creates and launches directly (skips LaunchConfirmation)
+    var onCreateAndLaunch: (String, String?, String?, Bool, Bool, Bool, String?, [ImageAttachment], CodingAssistant, String?, String?, String?) -> Void = { _, _, _, _, _, _, _, _, _, _, _, _ in }
     /// Boxd machine the user picked. Called just before `onCreateAndLaunch`
     /// when the launch runs on boxd.
     var onMachineChoice: (BoxdMachineChoice) -> Void = { _ in }
@@ -40,6 +40,10 @@ struct NewTaskDialog: View {
     @State private var commandEdited = false
     /// Every command the form made itself; a field with any other text was edited by the user.
     @State private var generatedCommands = GeneratedText()
+    /// The command that starts Claude Code: `claude` or a launcher's command.
+    @State private var selectedLauncher = ClaudeLauncherResolver.plain
+    /// Set once the user picks a launcher here; the project default then stops following the project.
+    @State private var launcherPicked = false
     @State private var worktreeBranch = ""
     @AppStorage("startTaskImmediately") private var startImmediately = true
     @State private var createWorktree = true
@@ -116,6 +120,27 @@ struct NewTaskDialog: View {
                 }
                 .onChange(of: selectedServiceId) {
                     refreshCommand()
+                }
+            }
+
+            // Launch command picker (Claude Code only, when launchers exist)
+            if startImmediately && selectedAssistant == .claude && !settings.claudeLaunchers.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("Launch with", selection: Binding(
+                        get: { selectedLauncher },
+                        set: { selectedLauncher = $0; launcherPicked = true }
+                    )) {
+                        Text(ClaudeLauncherEditing.plainName).tag(ClaudeLauncherResolver.plain)
+                        ForEach(settings.claudeLaunchers) { launcher in
+                            Text(launcher.name).tag(launcher.command)
+                        }
+                    }
+                    .disabled(effectiveRunRemotely)
+                    if effectiveRunRemotely {
+                        Label("applies to local runs", systemImage: "info.circle")
+                            .font(.app(.caption2))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -262,6 +287,9 @@ struct NewTaskDialog: View {
         .onChange(of: dangerouslySkipPermissions) {
             refreshCommand()
         }
+        .onChange(of: selectedLauncher) {
+            refreshCommand()
+        }
         .onChange(of: selectedAssistantRaw) {
             refreshCommand()
             // Reset to default service for the newly selected assistant
@@ -320,6 +348,7 @@ struct NewTaskDialog: View {
 
     /// Reads the toggle defaults of the selected project.
     private func applyProjectDefaults() {
+        applyDefaultLauncher()
         machineChoice = remoteOptions?.cardMachine.map { BoxdMachineChoice.existing($0) } ?? .newMachine
         guard let path = resolvedProjectPath else { return }
         if let remoteOptions { machineChoice = remoteOptions.initialMachineChoice(projectPath: path) }
@@ -327,6 +356,18 @@ struct NewTaskDialog: View {
             ? true
             : RemoteLaunchOptions.defaultRunRemotely(mode: remoteMode, projectPath: path)
         createWorktree = UserDefaults.standard.object(forKey: "createWorktree_\(path)") as? Bool ?? true
+    }
+
+    /// Preselects the launcher of the project's profile, until the user picks
+    /// one here (a pick whose launcher was deleted in Settings is dropped).
+    private func applyDefaultLauncher() {
+        let pickStillListed = selectedLauncher == ClaudeLauncherResolver.plain
+            || settings.claudeLaunchers.contains { $0.command == selectedLauncher }
+        guard !(launcherPicked && pickStillListed) else { return }
+        selectedLauncher = ClaudeLauncherResolver.defaultCommand(
+            forProjectPath: resolvedProjectPath,
+            profiles: settings.claudeProfiles,
+            launchers: settings.claudeLaunchers)
     }
 
     private func rememberRunRemotely() {
@@ -341,6 +382,7 @@ struct NewTaskDialog: View {
     private func reloadServices() async {
         let loaded = (try? await settingsStore.read()) ?? Settings()
         settings = loaded
+        applyDefaultLauncher()
         apiServices = loaded.apiServices
         defaultAPIServiceIds = loaded.defaultAPIServiceIds
         // Keep current selection if it still exists; otherwise fall back to the new default.
@@ -376,7 +418,14 @@ struct NewTaskDialog: View {
                 images,
                 selectedAssistant,
                 selectedServiceId,
-                worktreeBranch
+                worktreeBranch,
+                ClaudeLauncherResolver.choice(
+                    commandEdited: commandEdited,
+                    command: command,
+                    selected: selectedLauncher,
+                    assistant: selectedAssistant,
+                    runsRemotely: effectiveRunRemotely,
+                    launchers: settings.claudeLaunchers)
             )
         } else {
             onCreate(prompt, proj, titleOrNil, false, images)
@@ -470,7 +519,8 @@ struct NewTaskDialog: View {
         let launchCmd = selectedAssistant.launchCommand(
             skipPermissions: dangerouslySkipPermissions,
             worktreeName: worktreeName,
-            service: service
+            service: service,
+            binaryOverride: selectedAssistant == .claude && !effectiveRunRemotely ? selectedLauncher : nil
         )
         let template = settings.commandTemplate(for: selectedAssistant, remote: effectiveRunRemotely)
         parts.append(CodingAssistant.applyCommandTemplate(launchCmd, template: template))

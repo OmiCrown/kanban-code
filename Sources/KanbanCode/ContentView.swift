@@ -21,6 +21,7 @@ struct LaunchConfig: Identifiable {
     let assistant: CodingAssistant
     let apiServiceId: String?
     let modelOverride: String?
+    let launcherCommand: String?
 
     init(
         cardId: String,
@@ -36,7 +37,8 @@ struct LaunchConfig: Identifiable {
         promptImagePaths: [String] = [],
         assistant: CodingAssistant = .claude,
         apiServiceId: String? = nil,
-        modelOverride: String? = nil
+        modelOverride: String? = nil,
+        launcherCommand: String? = nil
     ) {
         self.cardId = cardId
         self.projectPath = projectPath
@@ -52,6 +54,7 @@ struct LaunchConfig: Identifiable {
         self.assistant = assistant
         self.apiServiceId = apiServiceId
         self.modelOverride = modelOverride
+        self.launcherCommand = launcherCommand
     }
 }
 
@@ -888,8 +891,8 @@ struct ContentView: View {
                     onCreate: { prompt, projectPath, title, startImmediately, images in
                         createManualTask(prompt: prompt, projectPath: projectPath, title: title, startImmediately: startImmediately, images: images)
                     },
-                    onCreateAndLaunch: { prompt, projectPath, title, createWorktree, runRemotely, skipPermissions, commandOverride, images, assistant, apiServiceId, worktreeBranch in
-                        createManualTaskAndLaunch(prompt: prompt, projectPath: projectPath, title: title, createWorktree: createWorktree, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: assistant, apiServiceId: apiServiceId, worktreeBranch: worktreeBranch)
+                    onCreateAndLaunch: { prompt, projectPath, title, createWorktree, runRemotely, skipPermissions, commandOverride, images, assistant, apiServiceId, worktreeBranch, launcherCommand in
+                        createManualTaskAndLaunch(prompt: prompt, projectPath: projectPath, title: title, createWorktree: createWorktree, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: assistant, apiServiceId: apiServiceId, worktreeBranch: worktreeBranch, launcherCommand: launcherCommand)
                     },
                     onMachineChoice: { pendingMachineChoice = $0 },
                     takenWorktreeNames: takenWorktreeNames
@@ -938,11 +941,12 @@ struct ContentView: View {
                     assistant: config.assistant,
                     initialServiceId: config.apiServiceId,
                     modelOverride: config.modelOverride,
+                    initialLauncherCommand: config.launcherCommand,
                     isPresented: Binding(
                         get: { launchConfig != nil },
                         set: { if !$0 { launchConfig = nil } }
                     ),
-                    onLaunch: { editedPrompt, createWorktree, worktreeBranch, runRemotely, skipPermissions, commandOverride, images, selectedServiceId in
+                    onLaunch: { editedPrompt, createWorktree, worktreeBranch, runRemotely, skipPermissions, commandOverride, images, selectedServiceId, launcherCommand in
                         let machineChoice = pendingMachineChoice
                         pendingMachineChoice = nil
                         if config.isResume, let target = engine.movePick(
@@ -952,7 +956,7 @@ struct ContentView: View {
                             executeResume(cardId: config.cardId, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, assistant: config.assistant, serviceIdOverride: selectedServiceId, modelOverride: config.modelOverride, machineChoice: machineChoice)
                         } else {
                             let wtName: String? = createWorktree ? (worktreeBranch ?? config.worktreeName ?? "") : nil
-                            executeLaunch(cardId: config.cardId, prompt: editedPrompt, projectPath: config.projectPath, worktreeName: wtName, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: config.assistant, serviceIdOverride: selectedServiceId, modelOverride: config.modelOverride, machineChoice: machineChoice)
+                            executeLaunch(cardId: config.cardId, prompt: editedPrompt, projectPath: config.projectPath, worktreeName: wtName, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: config.assistant, serviceIdOverride: selectedServiceId, modelOverride: config.modelOverride, launcherCommand: launcherCommand, machineChoice: machineChoice)
                         }
                     },
                     onMachineChoice: { pendingMachineChoice = $0 },
@@ -2525,7 +2529,8 @@ struct ContentView: View {
             cmd += card.link.effectiveAssistant.resumeCommand(
                 sessionId: sessionId,
                 skipPermissions: false,
-                modelOverride: card.link.modelOverride
+                modelOverride: card.link.modelOverride,
+                binaryOverride: card.link.launcherCommand
             )
         }
         NSPasteboard.general.clearContents()
@@ -2981,7 +2986,7 @@ struct ContentView: View {
         }
     }
 
-    private func createManualTaskAndLaunch(prompt: String, projectPath: String?, title: String? = nil, createWorktree: Bool, runRemotely: Bool, skipPermissions: Bool = true, commandOverride: String? = nil, images: [ImageAttachment] = [], assistant: CodingAssistant = .claude, apiServiceId: String? = nil, worktreeBranch: String? = nil) {
+    private func createManualTaskAndLaunch(prompt: String, projectPath: String?, title: String? = nil, createWorktree: Bool, runRemotely: Bool, skipPermissions: Bool = true, commandOverride: String? = nil, images: [ImageAttachment] = [], assistant: CodingAssistant = .claude, apiServiceId: String? = nil, worktreeBranch: String? = nil, launcherCommand: String? = nil) {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let name: String
         if let title, !title.isEmpty {
@@ -3017,7 +3022,7 @@ struct ContentView: View {
             let wtName = TaskWorktree.flagName(create: createWorktree, supported: assistant.supportsWorktree, typed: worktreeBranch)
             let machineChoice = pendingMachineChoice
             pendingMachineChoice = nil
-            executeLaunch(cardId: link.id, prompt: builtPrompt, projectPath: effectivePath, worktreeName: wtName, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: assistant, machineChoice: machineChoice)
+            executeLaunch(cardId: link.id, prompt: builtPrompt, projectPath: effectivePath, worktreeName: wtName, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: assistant, launcherCommand: launcherCommand, machineChoice: machineChoice)
         }
     }
 
