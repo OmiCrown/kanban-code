@@ -38,6 +38,9 @@ struct ProfilesSettingsView: View {
         }
         .formStyle(.grouped)
         .task { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: .kanbanCodeSettingsChanged)) { _ in
+            Task { await reloadLaunchers() }
+        }
     }
 
     // MARK: - Row
@@ -192,6 +195,13 @@ struct ProfilesSettingsView: View {
         profiles = merged
         launchers = settings?.claudeLaunchers ?? []
         loaded = true
+    }
+
+    /// Refreshes only the launcher list. `load()` would also reassign `profiles` from disk
+    /// and could overwrite an edit that is still waiting in the debounced save.
+    private func reloadLaunchers() async {
+        let settings = try? await settingsStore.read()
+        launchers = settings?.claudeLaunchers ?? []
     }
 
     private func scheduleSave() {
