@@ -65,7 +65,8 @@ struct MasterLauncherTests {
         profileLauncherId: String? = "codemie",
         launchers: [ClaudeLauncher] = [.codemie],
         resumeSessionId: String? = nil,
-        registersClaude: Bool = false
+        registersClaude: Bool = false,
+        registersCodex: Bool = false
     ) throws -> Rig {
         let root = (NSTemporaryDirectory() as NSString)
             .appendingPathComponent("master-launcher-\(UUID().uuidString)")
@@ -111,6 +112,11 @@ struct MasterLauncherTests {
             registry.register(
                 .claude, discovery: ClaudeCodeSessionDiscovery(),
                 detector: ClaudeCodeActivityDetector(), store: ClaudeCodeSessionStore())
+        }
+        if registersCodex {
+            registry.register(
+                .codex, discovery: CodexSessionDiscovery(),
+                detector: CodexActivityDetector(), store: CodexSessionStore(codexDir: root + "/dot-codex"))
         }
         let engine = MasterEngine(
             store: store,
@@ -283,7 +289,8 @@ struct MasterLauncherTests {
         let folder = rig.profile.projectsDirectory + "/" + SessionFileMover.encodeProjectPath(rig.project)
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         let path = folder + "/" + sessionId + ".jsonl"
-        try "{\"type\":\"user\",\"sessionId\":\"\(sessionId)\"}\n".write(toFile: path, atomically: true, encoding: .utf8)
+        let line = #"{"type":"user","sessionId":"\#(sessionId)","message":{"role":"user","content":"hello"}}"#
+        try (line + "\n").write(toFile: path, atomically: true, encoding: .utf8)
         rig.store.dispatch(.createManualTask(Link(
             id: id, name: "Source", projectPath: rig.project, column: .inProgress,
             launcherCommand: launcherCommand,
@@ -327,11 +334,11 @@ struct MasterLauncherTests {
 
     /// Runs a `kanban subagent fork` request and waits for the child's first
     /// resume (the goal delivery that follows has no tmux to talk to here).
-    private func forkSubagentRequest(_ rig: Rig) async throws -> Link {
+    private func forkSubagentRequest(_ rig: Rig, assistant: CodingAssistant? = nil) async throws -> Link {
         let request = SubagentCommandRequest(
             id: "req-fork", operation: .fork,
             createdAt: ISO8601DateFormatter().string(from: Date()),
-            parentCardId: "card_src", prompt: "same work, other direction")
+            parentCardId: "card_src", prompt: "same work, other direction", assistant: assistant)
         let inbox = URL(fileURLWithPath: rig.kanbanHome + "/commands/inbox", isDirectory: true)
         try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
         try JSONEncoder().encode(request).write(to: inbox.appendingPathComponent("req-fork.json"))
@@ -362,5 +369,16 @@ struct MasterLauncherTests {
         let child = try await forkSubagentRequest(rig)
         #expect(child.launcherCommand == nil)
         #expect(rig.tmux.lastCommand?.contains("codemie-claude") == false)
+    }
+
+    @Test("a subagent fork into another assistant copies no command")
+    func forkSubagentIntoCodexCopiesNothing() async throws {
+        let rig = try makeRig(registersClaude: true, registersCodex: true)
+        defer { try? FileManager.default.removeItem(atPath: rig.root) }
+        try addSourceCard(rig, launcherCommand: "codemie-claude")
+        let child = try await forkSubagentRequest(rig, assistant: .codex)
+        #expect(child.effectiveAssistant == .codex)
+        #expect(child.launcherCommand == nil)
+        #expect(rig.tmux.lastCommand?.contains("codemie-claude") != true)
     }
 }
