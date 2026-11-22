@@ -41,6 +41,8 @@ struct AboutView: View {
         }
         .padding(24)
         .frame(minWidth: 380)
+        // The window takes exactly the size of its content, so the longest value fits when it opens.
+        .fixedSize()
         .task {
             guard let info, info.canCheckFreshness else { return }
             freshness = await BuildFreshness.check(info)
