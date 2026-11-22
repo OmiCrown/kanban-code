@@ -52,10 +52,28 @@ final class BatchedTerminalView: LocalProcessTerminalView {
 
     /// Never drops output. Set for programs that redraw only what changed
     /// (rush), where a dropped byte stays on screen as a broken line.
-    /// tmux repaints the whole screen, so its terminals can skip frames.
+    /// tmux sends the difference between screens, so dropping its output is
+    /// safe only while nobody looks at the result for long (see `dropsFrames`).
     var lossless = false
 
-    private var dropsFrames: Bool { !passthroughMode && !lossless }
+    /// How long output stays whole after the wheel was last passed to the
+    /// program: it repaints on every tick and the ticks come in a stream.
+    static let keepOutputAfterWheel: CFTimeInterval = 1.0
+
+    private var keepsOutputUntil: CFTimeInterval = 0
+
+    /// tmux sends the difference between two screens, not the whole screen, so
+    /// a view that dropped part of the stream shows rows from different moments
+    /// (lines of the transcript on the row of the input field) until the program
+    /// happens to repaint them. A program that scrolls itself on the wheel
+    /// repaints on every tick, so its output is kept whole while the wheel turns.
+    func keepOutputWhileWheelTurns() {
+        keepsOutputUntil = CACurrentMediaTime() + Self.keepOutputAfterWheel
+    }
+
+    private var dropsFrames: Bool {
+        !passthroughMode && !lossless && CACurrentMediaTime() >= keepsOutputUntil
+    }
 
     // Stats collection
     private var statsReceiveCount = 0
@@ -560,6 +578,7 @@ extension TerminalView {
     /// although the view keeps its own selection (`allowMouseReporting` off).
     @MainActor
     func passWheelToProgram(_ event: NSEvent) {
+        (self as? BatchedTerminalView)?.keepOutputWhileWheelTurns()
         let before = allowMouseReporting
         allowMouseReporting = true
         defer { allowMouseReporting = before }
