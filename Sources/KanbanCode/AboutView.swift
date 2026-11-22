@@ -56,7 +56,11 @@ struct AboutView: View {
                 Text(label)
                     .foregroundStyle(.secondary)
                     .gridColumnAlignment(.trailing)
+                // One line, never wrapped: the window is sized to the longest value (a long branch name
+                // used to wrap and overlap the next row).
                 Text(value)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                     .gridColumnAlignment(.leading)
             }
         }
