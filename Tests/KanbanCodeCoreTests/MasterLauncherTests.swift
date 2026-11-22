@@ -64,7 +64,8 @@ struct MasterLauncherTests {
     private func makeRig(
         profileLauncherId: String? = "codemie",
         launchers: [ClaudeLauncher] = [.codemie],
-        resumeSessionId: String? = nil
+        resumeSessionId: String? = nil,
+        registersClaude: Bool = false
     ) throws -> Rig {
         let root = (NSTemporaryDirectory() as NSString)
             .appendingPathComponent("master-launcher-\(UUID().uuidString)")
@@ -105,12 +106,18 @@ struct MasterLauncherTests {
         platform.kanbanHome = kanbanHome
         platform.projectsDirectory = root + "/Projects"
         platform.claudeProjectsDirectory = defaultProjects
+        let registry = CodingAssistantRegistry()
+        if registersClaude {
+            registry.register(
+                .claude, discovery: ClaudeCodeSessionDiscovery(),
+                detector: ClaudeCodeActivityDetector(), store: ClaudeCodeSessionStore())
+        }
         let engine = MasterEngine(
             store: store,
             settingsStore: SettingsStore(basePath: kanbanHome),
             launcher: LaunchSession(tmux: tmux),
             tmux: RoutingTmuxAdapter(rush: RushCliAdapter(executable: "/nonexistent/rush")),
-            registry: CodingAssistantRegistry(),
+            registry: registry,
             platform: platform
         )
         store.dispatch(.localMachineLoaded(MachineIdentity(name: "test")))
@@ -263,5 +270,97 @@ struct MasterLauncherTests {
         try await Task.sleep(for: .milliseconds(200))
         #expect(rig.tmux.lastCommand?.contains(" codemie-claude ") == true)
         #expect(rig.tmux.lastCommand?.contains("--resume \(sessionId)") == true)
+    }
+
+    // MARK: - Fork
+
+    /// A card with a one-line transcript in the profile's folder, ready to fork.
+    private func addSourceCard(
+        _ rig: Rig, id: String = "card_src", launcherCommand: String?,
+        assistant: CodingAssistant? = nil
+    ) throws {
+        let sessionId = UUID().uuidString.lowercased()
+        let folder = rig.profile.projectsDirectory + "/" + SessionFileMover.encodeProjectPath(rig.project)
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let path = folder + "/" + sessionId + ".jsonl"
+        try "{\"type\":\"user\",\"sessionId\":\"\(sessionId)\"}\n".write(toFile: path, atomically: true, encoding: .utf8)
+        rig.store.dispatch(.createManualTask(Link(
+            id: id, name: "Source", projectPath: rig.project, column: .inProgress,
+            launcherCommand: launcherCommand,
+            sessionLink: SessionLink(sessionId: sessionId, sessionPath: path),
+            assistant: assistant)))
+    }
+
+    @Test("a fork of a CodeMie card keeps the command, so its resume is not plain claude")
+    func forkKeepsTheCommand() async throws {
+        let rig = try makeRig()
+        defer { try? FileManager.default.removeItem(atPath: rig.root) }
+        try addSourceCard(rig, launcherCommand: "codemie-claude")
+        let forkId = try await rig.engine.forkCard(cardId: "card_src")
+        #expect(rig.store.state.links[forkId]?.launcherCommand == "codemie-claude")
+        _ = rig.engine.resume(cardId: forkId, runRemotely: false, commandOverride: nil)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(rig.tmux.lastCommand?.contains(" codemie-claude ") == true)
+    }
+
+    @Test("a fork of a plain card stays plain")
+    func forkOfAPlainCardStaysPlain() async throws {
+        let rig = try makeRig()
+        defer { try? FileManager.default.removeItem(atPath: rig.root) }
+        try addSourceCard(rig, launcherCommand: nil)
+        let forkId = try await rig.engine.forkCard(cardId: "card_src")
+        #expect(rig.store.state.links[forkId]?.launcherCommand == nil)
+        _ = rig.engine.resume(cardId: forkId, runRemotely: false, commandOverride: nil)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(rig.tmux.lastCommand?.contains("codemie-claude") == false)
+    }
+
+    @Test("a fork of a card that is not Claude Code copies no command")
+    func forkOfACodexCardCopiesNothing() async throws {
+        let rig = try makeRig()
+        defer { try? FileManager.default.removeItem(atPath: rig.root) }
+        try addSourceCard(rig, launcherCommand: "codemie-claude", assistant: .codex)
+        let forkId = try await rig.engine.forkCard(cardId: "card_src")
+        #expect(rig.store.state.links[forkId]?.effectiveAssistant == .codex)
+        #expect(rig.store.state.links[forkId]?.launcherCommand == nil)
+    }
+
+    /// Runs a `kanban subagent fork` request and waits for the child's first
+    /// resume (the goal delivery that follows has no tmux to talk to here).
+    private func forkSubagentRequest(_ rig: Rig) async throws -> Link {
+        let request = SubagentCommandRequest(
+            id: "req-fork", operation: .fork,
+            createdAt: ISO8601DateFormatter().string(from: Date()),
+            parentCardId: "card_src", prompt: "same work, other direction")
+        let inbox = URL(fileURLWithPath: rig.kanbanHome + "/commands/inbox", isDirectory: true)
+        try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        try JSONEncoder().encode(request).write(to: inbox.appendingPathComponent("req-fork.json"))
+        let engine = rig.engine
+        let work = Task { await engine.processSubagentCommand(id: "req-fork") }
+        defer { work.cancel() }
+        for _ in 0..<100 where rig.tmux.lastCommand == nil {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        return try #require(rig.store.state.links.values.first { $0.parentCardId == "card_src" })
+    }
+
+    @Test("a subagent fork of a CodeMie card has the command at its first resume")
+    func forkSubagentKeepsTheCommand() async throws {
+        let rig = try makeRig(registersClaude: true)
+        defer { try? FileManager.default.removeItem(atPath: rig.root) }
+        try addSourceCard(rig, launcherCommand: "codemie-claude")
+        let child = try await forkSubagentRequest(rig)
+        #expect(child.launcherCommand == "codemie-claude")
+        #expect(rig.tmux.lastCommand?.contains(" codemie-claude ") == true)
+    }
+
+    @Test("a subagent fork of a plain card stays plain at its first resume")
+    func forkSubagentOfAPlainCardStaysPlain() async throws {
+        let rig = try makeRig(registersClaude: true)
+        defer { try? FileManager.default.removeItem(atPath: rig.root) }
+        try addSourceCard(rig, launcherCommand: nil)
+        let child = try await forkSubagentRequest(rig)
+        #expect(child.launcherCommand == nil)
+        #expect(rig.tmux.lastCommand?.contains("codemie-claude") == false)
     }
 }

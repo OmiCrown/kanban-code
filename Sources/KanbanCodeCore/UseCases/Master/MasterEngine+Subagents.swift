@@ -390,6 +390,11 @@ extension MasterEngine {
         let deliveryPrompt = identifiedSubagentPrompt(prompt, childId: child.id)
         child.promptBody = deliveryPrompt
         child.sessionLink = sessionLink
+        // A Claude fork of a Claude card resumes with the command the source
+        // was started with (set before the resume below, which reads it).
+        if sourceAssistant == .claude, targetAssistant == .claude {
+            child.launcherCommand = source.launcherCommand
+        }
         store.dispatch(.createManualTask(child))
         // The fork lands beside its source: same machine when the source runs
         // on boxd, local otherwise.
@@ -459,6 +464,9 @@ extension MasterEngine {
             assistant: assistant
         )
         newLink.apiServiceId = link.apiServiceId
+        // The copy resumes the way its source runs: plain `claude` in a
+        // profile with no login of its own stops with "Not logged in".
+        if assistant == .claude { newLink.launcherCommand = link.launcherCommand }
         if !keepWorktree, link.worktreeLink != nil {
             // The copied conversation names the parent's branch; the
             // reconciler reads only what the fork writes after this point.

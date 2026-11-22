@@ -115,12 +115,24 @@ Feature: Launch Command Per Card
 
   # ── Forks, remote and other assistants ──
 
-  Scenario: A fork stays plain claude
+  Scenario: A fork of a CodeMie card resumes with CodeMie
     Given a card launched with "codemie-claude" has a session
+    When I fork the session
+    Then the fork command should start with "codemie-claude"
+    And the forked card should store the launch command "codemie-claude"
+    Because a plain claude in a profile with no login of its own stops with "Not logged in"
+
+  Scenario: A fork of a plain card stays plain
+    Given a card launched with "claude" has a session
     When I fork the session
     Then the fork command should start with "claude"
     And the forked card should store no launch command
-    Because a fork is a copy of the transcript that CodeMie does not know
+    Because a plain card must never start asking for SSO
+
+  Scenario: A fork into another assistant copies no launch command
+    Given a card launched with "codemie-claude" has a session
+    When I fork the session into Codex
+    Then the forked card should store no launch command
 
   Scenario: Remote runs store nothing and the popup is disabled
     Given "Run remotely" is checked in the launch confirmation dialog
