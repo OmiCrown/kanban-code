@@ -142,6 +142,7 @@ public final class ClaudeCodeSessionDiscovery: SessionDiscovery, @unchecked Send
                     session.projectPath = indexEntry?.projectPath
                     session.jsonlPath = filePath
                     session.modifiedTime = mtime
+                    session.startedTime = attrs[.creationDate] as? Date
                     session.messageCount = metadata.messageCount
                     session.entrypoint = metadata.entrypoint
 
@@ -170,6 +171,7 @@ public final class ClaudeCodeSessionDiscovery: SessionDiscovery, @unchecked Send
                         session.projectPath = session.projectPath ?? entry.projectPath
                         session.jsonlPath = filePath
                         session.modifiedTime = mtime
+                        session.startedTime = attrs[.creationDate] as? Date
                         cachedSessions[sessionId] = session
                     }
                 }

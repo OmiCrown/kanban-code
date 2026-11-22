@@ -132,6 +132,56 @@ struct LaunchSessionHijackTests {
         #expect(result.first { $0.id == card.id }?.sessionLink?.sessionId == "new-session")
     }
 
+    /// The failure seen on a real board: a session of the same project was
+    /// mid-conversation when a card launched (its last message 30 seconds
+    /// before). Within the tolerance of its modified time it was taken as
+    /// the launch's own, a second before the real session's file even
+    /// existed, and the card then showed another conversation's transcript.
+    @Test("a session that was already running when the card launched is not taken, however recently it wrote")
+    func runningSessionIsNotAdopted() {
+        let launch = Date.now
+        let card = launchingCard(launchedAt: launch)
+        let running = Session(
+            id: "running-session", projectPath: project,
+            modifiedTime: launch.addingTimeInterval(-30),
+            startedTime: launch.addingTimeInterval(-11 * 3600),
+            jsonlPath: "/sessions/running-session.jsonl")
+        let real = Session(
+            id: "real-session", projectPath: project,
+            modifiedTime: launch.addingTimeInterval(5),
+            startedTime: launch.addingTimeInterval(5),
+            jsonlPath: "/sessions/real-session.jsonl")
+
+        let afterRunning = CardReconciler.reconcile(
+            existing: [card],
+            snapshot: CardReconciler.DiscoverySnapshot(sessions: [running]))
+        #expect(afterRunning.first { $0.id == card.id }?.sessionLink == nil)
+
+        let result = CardReconciler.reconcile(
+            existing: afterRunning,
+            snapshot: CardReconciler.DiscoverySnapshot(sessions: [running, real]))
+        #expect(result.first { $0.id == card.id }?.sessionLink?.sessionId == "real-session")
+    }
+
+    @Test("a session that began within the skew of the launch stamp counts, whatever its modified time")
+    func startedWithinSkewIsAdopted() {
+        let launch = Date.now
+        let card = launchingCard(launchedAt: launch)
+        let snapshot = CardReconciler.DiscoverySnapshot(
+            sessions: [
+                Session(
+                    id: "new-session", projectPath: worktree,
+                    modifiedTime: launch.addingTimeInterval(20),
+                    startedTime: launch.addingTimeInterval(-5),
+                    jsonlPath: "/sessions/new-session.jsonl")
+            ]
+        )
+
+        let result = CardReconciler.reconcile(existing: [card], snapshot: snapshot)
+
+        #expect(result.first { $0.id == card.id }?.sessionLink?.sessionId == "new-session")
+    }
+
     @Test("of two launching cards the newer launch takes the session")
     func newestLaunchWins() {
         let now = Date.now

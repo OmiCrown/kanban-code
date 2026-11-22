@@ -9,6 +9,11 @@ public struct Session: Identifiable, Sendable, Equatable {
     public var gitBranch: String? // Git branch if in a worktree
     public var messageCount: Int
     public var modifiedTime: Date
+    /// When the session began: the birth of its file, where the assistant's
+    /// store can tell. `modifiedTime` moves with every message, so a session
+    /// that has run for a day looks as young as one that just started; this
+    /// does not. Nil where the store does not say.
+    public var startedTime: Date?
     public var jsonlPath: String? // Full path to the session file (.jsonl or .json)
     public var assistant: CodingAssistant // Which assistant this session belongs to
     /// How the assistant was started, as its transcript records it:
@@ -35,6 +40,7 @@ public struct Session: Identifiable, Sendable, Equatable {
         gitBranch: String? = nil,
         messageCount: Int = 0,
         modifiedTime: Date = .now,
+        startedTime: Date? = nil,
         jsonlPath: String? = nil,
         assistant: CodingAssistant = .claude,
         entrypoint: String? = nil
@@ -46,6 +52,7 @@ public struct Session: Identifiable, Sendable, Equatable {
         self.gitBranch = gitBranch
         self.messageCount = messageCount
         self.modifiedTime = modifiedTime
+        self.startedTime = startedTime
         self.jsonlPath = jsonlPath
         self.assistant = assistant
         self.entrypoint = entrypoint

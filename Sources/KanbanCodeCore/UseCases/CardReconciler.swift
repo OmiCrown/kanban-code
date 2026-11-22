@@ -686,8 +686,16 @@ public enum CardReconciler {
     /// card that waits for one, including sessions last written days before
     /// the card existed. The session a launch starts is always written after
     /// the launch, so anything older belongs to somebody else.
+    ///
+    /// The judge is when the session began, not when it last wrote: a
+    /// conversation of the same project that was mid-turn when the card
+    /// launched has a fresh modified time and is still somebody else's. Taken
+    /// by it, the card showed that conversation's transcript, and the real
+    /// session, arriving a second later, found the card taken. The modified
+    /// time stands in only where the store does not say when a session began.
     private static func startedAfterLaunch(session: Session, link: Link) -> Bool {
-        session.modifiedTime >= link.launchAnchor.addingTimeInterval(-launchMatchTolerance)
+        let began = session.startedTime ?? session.modifiedTime
+        return began >= link.launchAnchor.addingTimeInterval(-launchMatchTolerance)
     }
 
     /// The most recently launched of several candidate cards.
