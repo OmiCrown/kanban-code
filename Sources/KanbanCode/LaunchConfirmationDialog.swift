@@ -173,6 +173,8 @@ struct LaunchConfirmationDialog: View {
 
                     // Launch command picker (Claude Code only, when launchers exist).
                     // A started card keeps its command, so a resume shows it disabled.
+                    // A card that has none (started before launchers, or imported)
+                    // lets the user choose one, and keeps the choice.
                     if assistant == .claude && !settings.claudeLaunchers.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             Picker("Launch with", selection: Binding(
@@ -184,13 +186,17 @@ struct LaunchConfirmationDialog: View {
                                     Text(launcher.name).tag(launcher.command)
                                 }
                             }
-                            .disabled(isResume || effectiveRunRemotely)
-                            if isResume {
+                            .disabled(launcherLocked || effectiveRunRemotely)
+                            if launcherLocked {
                                 Label("A started card keeps its launch command", systemImage: "info.circle")
                                     .font(.app(.caption2))
                                     .foregroundStyle(.secondary)
                             } else if effectiveRunRemotely {
                                 Label("applies to local runs", systemImage: "info.circle")
+                                    .font(.app(.caption2))
+                                    .foregroundStyle(.secondary)
+                            } else if isResume {
+                                Label("This card has no launch command yet; the choice is kept", systemImage: "info.circle")
                                     .font(.app(.caption2))
                                     .foregroundStyle(.secondary)
                             }
@@ -425,9 +431,9 @@ struct LaunchConfirmationDialog: View {
 
     /// Preselects the launcher of the project's profile for a launch, until the
     /// card or the user has chosen one (a choice whose launcher was deleted in
-    /// Settings is dropped). A resume keeps the card's command.
+    /// Settings is dropped). A resume of a card with a command keeps it.
     private func applyDefaultLauncher() {
-        guard !isResume else { return }
+        guard !launcherLocked else { return }
         let pickStillListed = selectedLauncher == ClaudeLauncherResolver.plain
             || settings.claudeLaunchers.contains { $0.command == selectedLauncher }
         guard !(launcherPicked && pickStillListed) else { return }
@@ -437,13 +443,16 @@ struct LaunchConfirmationDialog: View {
             launchers: settings.claudeLaunchers)
     }
 
+    /// A resume of a card that already has a launch command keeps it.
+    private var launcherLocked: Bool { isResume && initialLauncherCommand != nil }
+
     private func submitForm() {
         if !isResume {
             guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         }
         let override = commandEdited ? command : nil
-        // A resume keeps the card's own command, which the engine reads.
-        let launcherCommand = isResume ? nil : ClaudeLauncherResolver.choice(
+        // A resume of a card with a command keeps it; the engine reads it from the card.
+        let launcherCommand = launcherLocked ? nil : ClaudeLauncherResolver.choice(
             commandEdited: commandEdited,
             command: command,
             selected: selectedLauncher,

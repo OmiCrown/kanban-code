@@ -558,6 +558,23 @@ public final class MasterEngine {
             ? ClaudeLauncherResolver.plain : resolved
     }
 
+    /// The command a resume runs: only a local Claude card has one. A command
+    /// chosen in the resume dialog beats the card's own; a blank choice reads
+    /// as no choice. Without either, nil means plain `claude`, which keeps
+    /// imported and found sessions as they were.
+    public nonisolated static func resumeLauncherCommand(
+        assistant: CodingAssistant,
+        isRemote: Bool,
+        explicit: String?,
+        linkLauncherCommand: String?
+    ) -> String? {
+        guard assistant == .claude, !isRemote else { return nil }
+        if let explicit, !explicit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return explicit
+        }
+        return linkLauncherCommand
+    }
+
     /// The error shown when the first prompt of a launch did not reach the
     /// assistant, so a card that stopped before its agent started says why.
     nonisolated static func promptDeliveryFailure(assistant: CodingAssistant, cardName: String?, error: String, queued: Bool) -> String {
@@ -703,6 +720,7 @@ public final class MasterEngine {
         serviceIdOverride: String? = nil,
         modelOverride: String? = nil,
         machineChoice: BoxdMachineChoice? = nil,
+        launcherCommand: String? = nil,
         keepSelection: Bool = false,
         afterDispatch: (() -> Void)? = nil
     ) -> Bool {
@@ -1011,6 +1029,18 @@ public final class MasterEngine {
                     return
                 }
 
+                // What the card resumes with; a command chosen in the dialog
+                // is kept on the card, so the next resume runs it too.
+                let resumeCommand = Self.resumeLauncherCommand(
+                    assistant: assistant, isRemote: isRemote,
+                    explicit: launcherCommand, linkLauncherCommand: card.link.launcherCommand)
+                if let resumeCommand {
+                    let stored = ClaudeLauncherResolver.commandToStore(resumeCommand)
+                    if stored != card.link.launcherCommand {
+                        store.dispatch(.setLauncherCommand(cardId: cardId, command: stored))
+                    }
+                }
+
                 let actualTmuxName = try await launcher.resume(
                     sessionId: sessionId,
                     projectPath: resumePath,
@@ -1023,10 +1053,9 @@ public final class MasterEngine {
                     assistant: assistant,
                     service: resolvedService,
                     modelOverride: effectiveModelOverride,
-                    // A card resumes with what it stored; nil is plain
-                    // `claude`. Remote and non-Claude cards never carry a
-                    // stored launcher, so they always resume plain too.
-                    launcherCommand: (assistant == .claude && !isRemote) ? card.link.launcherCommand : nil
+                    // nil is plain `claude`; remote and non-Claude cards
+                    // always resume plain.
+                    launcherCommand: resumeCommand
                 )
                 KanbanCodeLog.info("resume", "Resume launched for card=\(cardId.prefix(12)) actualTmux=\(actualTmuxName)")
                 if let preparation = boxdPreparation, let boxdSupervisor {

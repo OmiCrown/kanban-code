@@ -270,7 +270,7 @@ extension ContentView {
         }
     }
 
-    func executeResume(cardId: String, runRemotely: Bool, skipPermissions: Bool = true, commandOverride: String?, assistant: CodingAssistant = .claude, serviceIdOverride: String? = nil, modelOverride: String? = nil, machineChoice: BoxdMachineChoice? = nil, focusCard: Bool = true) {
+    func executeResume(cardId: String, runRemotely: Bool, skipPermissions: Bool = true, commandOverride: String?, assistant: CodingAssistant = .claude, serviceIdOverride: String? = nil, modelOverride: String? = nil, launcherCommand: String? = nil, machineChoice: BoxdMachineChoice? = nil, focusCard: Bool = true) {
         engine.resume(
             cardId: cardId,
             runRemotely: runRemotely,
@@ -280,6 +280,7 @@ extension ContentView {
             serviceIdOverride: serviceIdOverride,
             modelOverride: modelOverride,
             machineChoice: machineChoice,
+            launcherCommand: launcherCommand,
             keepSelection: !focusCard,
             afterDispatch: focusCard ? { [self] in shouldFocusTerminal = true } : nil
         )

@@ -953,7 +953,7 @@ struct ContentView: View {
                             forForeignCard: config.cardId, runRemotely: runRemotely, machineChoice: machineChoice) {
                             engine.moveCardReporting(config.cardId, to: target)
                         } else if config.isResume {
-                            executeResume(cardId: config.cardId, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, assistant: config.assistant, serviceIdOverride: selectedServiceId, modelOverride: config.modelOverride, machineChoice: machineChoice)
+                            executeResume(cardId: config.cardId, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, assistant: config.assistant, serviceIdOverride: selectedServiceId, modelOverride: config.modelOverride, launcherCommand: launcherCommand, machineChoice: machineChoice)
                         } else {
                             let wtName: String? = createWorktree ? (worktreeBranch ?? config.worktreeName ?? "") : nil
                             executeLaunch(cardId: config.cardId, prompt: editedPrompt, projectPath: config.projectPath, worktreeName: wtName, runRemotely: runRemotely, skipPermissions: skipPermissions, commandOverride: commandOverride, images: images, assistant: config.assistant, serviceIdOverride: selectedServiceId, modelOverride: config.modelOverride, launcherCommand: launcherCommand, machineChoice: machineChoice)

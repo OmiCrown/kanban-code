@@ -256,6 +256,47 @@ struct MasterLauncherTests {
         #expect(rig.tmux.lastCommand?.contains("codemie-claude") == false)
     }
 
+    @Test("a launch command chosen at resume runs and is kept on a card that had none")
+    func resumeChosenCommandRunsAndIsStored() async throws {
+        let sessionId = UUID().uuidString.lowercased()
+        let rig = try makeRig(resumeSessionId: sessionId)
+        defer { try? FileManager.default.removeItem(atPath: rig.root) }
+        let encoded = SessionFileMover.encodeProjectPath(rig.project)
+        let sessionPath = rig.profile.projectsDirectory + "/" + encoded + "/" + sessionId + ".jsonl"
+        try FileManager.default.createDirectory(
+            atPath: (sessionPath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try "{\"type\":\"user\"}\n".write(toFile: sessionPath, atomically: true, encoding: .utf8)
+        rig.store.dispatch(.createManualTask(Link(
+            id: "card_chosen", name: "Started plain", projectPath: rig.project, column: .inProgress,
+            launcherCommand: nil,
+            sessionLink: SessionLink(sessionId: sessionId, sessionPath: sessionPath))))
+        _ = rig.engine.resume(
+            cardId: "card_chosen", runRemotely: false, commandOverride: nil,
+            launcherCommand: "codemie-claude")
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(rig.tmux.lastCommand?.contains(" codemie-claude ") == true)
+        #expect(rig.tmux.lastCommand?.contains("--resume \(sessionId)") == true)
+        #expect(rig.store.state.links["card_chosen"]?.launcherCommand == "codemie-claude")
+    }
+
+    @Test("a launch command chosen at resume is ignored for a remote run and for other assistants")
+    func resumeChoiceIgnoredOffLocalClaude() {
+        #expect(MasterEngine.resumeLauncherCommand(
+            assistant: .claude, isRemote: true, explicit: "codemie-claude", linkLauncherCommand: nil) == nil)
+        #expect(MasterEngine.resumeLauncherCommand(
+            assistant: .codex, isRemote: false, explicit: "codemie-claude", linkLauncherCommand: nil) == nil)
+    }
+
+    @Test("resume without a choice keeps the card's own command, and none means plain")
+    func resumeWithoutChoiceKeepsCardCommand() {
+        #expect(MasterEngine.resumeLauncherCommand(
+            assistant: .claude, isRemote: false, explicit: nil, linkLauncherCommand: "codemie-claude") == "codemie-claude")
+        #expect(MasterEngine.resumeLauncherCommand(
+            assistant: .claude, isRemote: false, explicit: nil, linkLauncherCommand: nil) == nil)
+        #expect(MasterEngine.resumeLauncherCommand(
+            assistant: .claude, isRemote: false, explicit: "  ", linkLauncherCommand: "codemie-claude") == "codemie-claude")
+    }
+
     @Test("settings edits after a card started do not change its resume command")
     func editedSettingsDoNotChangeStartedCard() async throws {
         let sessionId = UUID().uuidString.lowercased()
