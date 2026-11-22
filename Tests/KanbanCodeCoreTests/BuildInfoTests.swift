@@ -61,6 +61,18 @@ struct BuildInfoTests {
         #expect(garbage.buildDateText(in: utc) == nil)
     }
 
+    @Test func freshnessCanBeCheckedOnlyWithSourcesAndCommit() throws {
+        let full = try #require(BuildInfo(infoDictionary: stamped()))
+        #expect(full.canCheckFreshness)
+
+        // A CI-built release carries a commit but no source path: there is nothing local to compare with.
+        var released = stamped()
+        released["KCSourceRepo"] = nil
+        #expect(try #require(BuildInfo(infoDictionary: released)).canCheckFreshness == false)
+
+        #expect(BuildInfo(sourceRepo: "/r").canCheckFreshness == false)
+    }
+
     @Test func summaryListsRowsInOrder() throws {
         let info = try #require(BuildInfo(infoDictionary: stamped()))
         let lines = info.summaryText(freshness: .unknown, timeZone: utc).split(separator: "\n").map(String.init)

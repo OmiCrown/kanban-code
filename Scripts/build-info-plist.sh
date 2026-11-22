@@ -31,5 +31,9 @@ emit KCGitBranch "$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null)"
 emit KCGitSHA "$(git -C "$dir" rev-parse HEAD 2>/dev/null)"
 emit KCGitDirty "$dirty"
 emit KCBuildDate "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-emit KCSourceRepo "$dir"
+# A CI runner's checkout path is meaningless on the machine that runs the app: without it the About
+# window has no local sources to compare with and leaves the freshness line out.
+if [ -z "${CI:-}${GITHUB_ACTIONS:-}" ]; then
+  emit KCSourceRepo "$dir"
+fi
 emit KCWorktree "$worktree"

@@ -55,6 +55,9 @@ public struct BuildInfo: Equatable, Sendable {
         )
     }
 
+    /// A build made on a CI runner carries a commit but no local source path, so there is nothing to compare with.
+    public var canCheckFreshness: Bool { sourceRepo != nil && sha != nil }
+
     public var shortSHA: String? { sha.map { String($0.prefix(7)) } }
 
     public var commitText: String? {

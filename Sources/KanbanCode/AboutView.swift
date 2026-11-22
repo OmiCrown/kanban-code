@@ -24,7 +24,9 @@ struct AboutView: View {
                     row("Worktree", info.worktree)
                     row("Commit", info.commitText)
                     row("Built", info.buildDateText())
-                    row("Sources", checking ? "Checking…" : freshness?.text)
+                    if info.canCheckFreshness {
+                        row("Sources", checking ? "Checking…" : freshness?.text)
+                    }
                 }
                 .textSelection(.enabled)
 
@@ -40,7 +42,7 @@ struct AboutView: View {
         .padding(24)
         .frame(minWidth: 380)
         .task {
-            guard let info else { return }
+            guard let info, info.canCheckFreshness else { return }
             freshness = await BuildFreshness.check(info)
             checking = false
         }

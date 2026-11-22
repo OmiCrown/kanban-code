@@ -13,6 +13,8 @@ has_regex() { grep -qE -- "$2" <<<"$1" || fail "$3 (wanted /$2/)"; }
 
 # Environment variables set by a surrounding git command would point git at another repo.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+# A CI runner's checkout path means nothing on the user's machine: the script skips KCSourceRepo there.
+unset CI GITHUB_ACTIONS
 
 g() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
 
@@ -50,6 +52,12 @@ g -C "$T/main" worktree add -q "$T/wt1" -b wtbranch
 wt=$("$SCRIPT" "$T/wt1")
 has_fixed "$wt" '<key>KCWorktree</key><string>wt1</string>' "linked worktree is named"
 has_fixed "$wt" '<key>KCGitBranch</key><string>wtbranch</string>' "worktree branch"
+
+for ci_var in CI GITHUB_ACTIONS; do
+  ci=$(env "$ci_var=true" "$SCRIPT" "$T/main")
+  has_regex "$ci" '<key>KCGitSHA</key><string>[0-9a-f]{40}</string>' "$ci_var: commit is still stamped"
+  ! grep -qF 'KCSourceRepo' <<<"$ci" || fail "$ci_var: a CI runner path must not be stamped as the source repo"
+done
 
 mkdir "$T/plain"
 [ -z "$("$SCRIPT" "$T/plain")" ] || fail "a folder that is not a git checkout prints nothing"
