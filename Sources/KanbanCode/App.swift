@@ -7,6 +7,7 @@ import KanbanCodeCore
 @main
 struct KanbanCodeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @Environment(\.openWindow) private var openWindow
 
     init() {
         InheritedSessionEnvironment.scrub()
@@ -22,6 +23,12 @@ struct KanbanCodeApp: App {
         }
         .defaultSize(width: 1200, height: 700)
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Kanban Code") {
+                    openWindow(id: "about")
+                }
+            }
+
             CommandGroup(replacing: .newItem) {
                 Button("New Task") {
                     NotificationCenter.default.post(name: .kanbanCodeNewTask, object: nil)
@@ -72,6 +79,11 @@ struct KanbanCodeApp: App {
                 .keyboardShortcut("0", modifiers: .command)
             }
         }
+
+        Window("About Kanban Code", id: "about") {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
 
         Settings {
             SettingsView()
