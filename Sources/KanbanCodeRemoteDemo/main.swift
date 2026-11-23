@@ -51,7 +51,12 @@ struct DemoOptions {
             case "--port": o.port = Int(value()) ?? o.port
             case "--devices": o.devicesPath = value()
             case "--pair": o.pairName = value()
-            case "--scope": o.scope = RemoteScope(rawValue: value()) ?? .full
+            case "--scope":
+                let name = value()
+                guard let scope = RemoteScope(rawValue: name) else {
+                    usage("unknown scope '\(name)'; use \(RemoteScope.allCases.map(\.rawValue).joined(separator: ", "))")
+                }
+                o.scope = scope
             case "--rush": o.rushId = value()
             case "--tmux-socket": o.tmuxSocket = value()
             case "--loopback-only": o.loopbackOnly = true
@@ -70,7 +75,7 @@ struct DemoOptions {
     static func usage(_ error: String?) -> Never {
         if let error { FileHandle.standardError.write(Data("error: \(error)\n\n".utf8)) }
         print("""
-        usage: kanban-code-remote-demo [--port 7790] [--devices <path>] [--pair <name> [--scope full|agent]]
+        usage: kanban-code-remote-demo [--port 7790] [--devices <path>] [--pair <name> [--scope full|agent|backlog|peer|terminal]]
                                        [--rush <rush session id>] [--tmux-socket <name>] [--loopback-only]
                                        [--machine <id:name>] [--cards default|box] [--foreign <id:name>]
                                        [--exit-when <file>]

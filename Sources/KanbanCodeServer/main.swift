@@ -9,7 +9,7 @@ import Glibc
 // over the kanban home of this machine, for hosts without the Mac app.
 //
 //   kanban-code-server                      serve on loopback + Tailscale, port from settings (7780)
-//   kanban-code-server pair <name> [--scope full|agent|peer|terminal]
+//   kanban-code-server pair <name> [--scope full|agent|backlog|peer|terminal]
 //                                           add a device, print its token and pair link
 
 struct ServerOptions {
@@ -40,7 +40,13 @@ struct ServerOptions {
             case "--home": o.home = value()
             case "--port": o.port = Int(value())
             case "--devices": o.devicesPath = value()
-            case "--scope": o.scope = RemoteScope(rawValue: value()) ?? .full
+            case "--scope":
+                // A typo must not widen the token: an unknown scope is an error, never `full`.
+                let name = value()
+                guard let scope = RemoteScope(rawValue: name) else {
+                    usage("unknown scope '\(name)'; use \(RemoteScope.allCases.map(\.rawValue).joined(separator: ", "))")
+                }
+                o.scope = scope
             case "--host-name": o.hostName = value()
             case "--loopback-only": o.loopbackOnly = true
             case "--reconcile": o.reconciles = true
@@ -57,7 +63,7 @@ struct ServerOptions {
         if let error { FileHandle.standardError.write(Data("error: \(error)\n\n".utf8)) }
         say("""
         usage: kanban-code-server [--home <dir>] [--port <n>] [--devices <path>] [--host-name <name>] [--loopback-only] [--no-reconcile]
-               kanban-code-server pair <name> [--scope full|agent|peer|terminal] [--home <dir>] [--devices <path>]
+               kanban-code-server pair <name> [--scope full|agent|backlog|peer|terminal] [--home <dir>] [--devices <path>]
 
           --home       kanban home (default ~/.kanban-code): links.json, settings.json, remote/devices.json
           --port       listen port (default: settings remoteControl.port, else \(RemoteAPI.defaultPort))
