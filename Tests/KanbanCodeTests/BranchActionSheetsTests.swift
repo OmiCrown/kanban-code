@@ -275,6 +275,30 @@ struct FinishSheetTests {
         #expect(FinishPlan.otherActiveCardsOnBranch(counts: [:], branch: "feat/x", cardIsActive: false) == 0)
     }
 
+    // MARK: - Ignored list changed
+
+    @Test("the same ignored paths with other file counts are not a change: builds change counts")
+    func sameIgnoredPathsOtherCounts() {
+        let shown = [IgnoredEntry(path: ".build/", fileCount: 10), IgnoredEntry(path: ".superpowers/", fileCount: 31)]
+        let fresh = [IgnoredEntry(path: ".build/", fileCount: 400), IgnoredEntry(path: ".superpowers/", fileCount: 3)]
+        #expect(!FinishPlan.ignoredPathsChanged(shown: shown, fresh: fresh))
+    }
+
+    @Test("an ignored path that was not shown is a change")
+    func addedIgnoredPath() {
+        let shown = [IgnoredEntry(path: ".build/", fileCount: 10)]
+        let fresh = shown + [IgnoredEntry(path: "node_modules/", fileCount: 5)]
+        #expect(FinishPlan.ignoredPathsChanged(shown: shown, fresh: fresh))
+        #expect(FinishPlan.ignoredPathsChanged(shown: [], fresh: fresh))
+    }
+
+    @Test("an ignored path that is gone is not a change: less is deleted than was shown")
+    func removedIgnoredPath() {
+        let shown = [IgnoredEntry(path: ".build/", fileCount: 10), IgnoredEntry(path: "out/", fileCount: 2)]
+        #expect(!FinishPlan.ignoredPathsChanged(shown: shown, fresh: [IgnoredEntry(path: ".build/", fileCount: 10)]))
+        #expect(!FinishPlan.ignoredPathsChanged(shown: shown, fresh: []))
+    }
+
     // MARK: - Removal block reason
 
     private static func reason(

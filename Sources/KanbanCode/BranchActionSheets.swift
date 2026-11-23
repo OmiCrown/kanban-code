@@ -365,6 +365,13 @@ enum FinishPlan {
         max(0, counts[branch, default: 0] - (cardIsActive ? 1 : 0))
     }
 
+    /// True when `fresh` holds an ignored path the sheet did not show. Only paths
+    /// count: file counts move with every build. A path that has gone means less is
+    /// deleted than was shown, which is no reason to stop.
+    static func ignoredPathsChanged(shown: [IgnoredEntry], fresh: [IgnoredEntry]) -> Bool {
+        !Set(fresh.map(\.path)).isSubset(of: Set(shown.map(\.path)))
+    }
+
     /// Why the worktree cannot be removed, or nil. With `closeCard` the session of
     /// the card is stopped before the removal, so a live session is not a reason yet;
     /// the run checks again after the close.
@@ -656,6 +663,9 @@ struct FinishBranchSheet: View {
         let steps = pendingSteps
         guard !steps.isEmpty else { return }
         failure = nil
+        // Set before the Task starts: Finish is disabled while a step runs, so a
+        // second press in the gap cannot start a second run (two `make app`).
+        running = steps[0]
         Task { await run(steps, loaded: loaded) }
     }
 
@@ -679,7 +689,6 @@ struct FinishBranchSheet: View {
 
             case .removeWorktree:
                 if closedHere, !sessions.isEmpty { await Self.waitForSessionsToEnd(sessions) }
-                guard let link else { return fail("This card is no longer on the board; the worktree was not removed.") }
                 let fresh: FinishState
                 do {
                     fresh = try await BranchFinish().state(worktreePath: target.worktreePath, branch: target.branch)
@@ -687,8 +696,19 @@ struct FinishBranchSheet: View {
                     return fail(error.localizedDescription)
                 }
                 mainCheckout = fresh.mainCheckout
-                // The state after the close, as it is now: the link, and tmux itself.
+                // Something new in the worktree's ignored files since the sheet listed
+                // them would be deleted unseen: show the new list and ask again.
+                if FinishPlan.ignoredPathsChanged(shown: loaded.state.ignored, fresh: fresh.ignored) {
+                    phase = .loaded(Loaded(state: fresh, hasAppTarget: loaded.hasAppTarget))
+                    removeWorktree = false
+                    return fail("The ignored files changed since you opened this sheet. The worktree was not removed; check the list above and tick Remove worktree again.")
+                }
+                // The state after the close, as it is now: tmux itself ...
                 let stillRunning = await !Self.runningSessions(among: sessions).isEmpty
+                // ... and the card, read last so the guard sees fresh values.
+                guard let link = store.state.links[target.cardId] else {
+                    return fail("This card is no longer on the board; the worktree was not removed.")
+                }
                 if let reason = FinishPlan.removalBlockReason(
                     state: fresh,
                     worktreePath: target.worktreePath,
