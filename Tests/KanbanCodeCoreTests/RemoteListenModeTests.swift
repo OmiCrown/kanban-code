@@ -1,5 +1,6 @@
 import Foundation
 import KanbanCodeRemoteKit
+import Synchronization
 import Testing
 
 @testable import KanbanCodeCore
@@ -54,5 +55,50 @@ struct RemoteListenModeSettingTests {
         #expect(!RemoteControlSettings(enabled: true, port: 7780, listenOn: .thisMac).needsRestart(from: base))
         #expect(RemoteControlSettings(enabled: false, port: 7780, listenOn: .tailscale).needsRestart(from: base))
         #expect(RemoteControlSettings(enabled: true, port: 7781, listenOn: .tailscale).needsRestart(from: base))
+    }
+}
+
+@Suite("Remote listen addresses")
+struct RemoteListenAddressTests {
+    private static let fakeTailscale = ["100.64.0.5", "fd7a:115c:a1e0::1"]
+
+    @Test("this Mac only is loopback alone")
+    func thisMacIsLoopbackOnly() {
+        #expect(RemoteNetworkAddresses.addresses(for: .thisMac, tailscale: { Self.fakeTailscale }) == ["127.0.0.1"])
+    }
+
+    @Test("also Tailscale adds the Tailscale addresses after loopback")
+    func tailscaleAddsItsAddresses() {
+        #expect(RemoteNetworkAddresses.addresses(for: .tailscale, tailscale: { Self.fakeTailscale })
+            == ["127.0.0.1", "100.64.0.5", "fd7a:115c:a1e0::1"])
+    }
+
+    @Test("no wildcard and no duplicates")
+    func noWildcardNoDuplicates() {
+        let out = RemoteNetworkAddresses.addresses(for: .tailscale, tailscale: { ["100.64.0.5", "100.64.0.5", "127.0.0.1"] })
+        #expect(out == ["127.0.0.1", "100.64.0.5"])
+        #expect(!out.contains("0.0.0.0"))
+    }
+
+    @Test("this Mac only does not even ask for the Tailscale addresses")
+    func thisMacDoesNotAskTailscale() {
+        let calls = Mutex(0)
+        _ = RemoteNetworkAddresses.addresses(for: .thisMac, tailscale: { calls.withLock { $0 += 1 }; return [] })
+        #expect(calls.withLock { $0 } == 0)
+    }
+
+    @Test("the box follows the mode it is given")
+    func boxFollowsSet() {
+        let box = RemoteListenModeBox(.thisMac)
+        #expect(box.bindAddresses(tailscale: { ["::1"] }) == ["127.0.0.1"])
+        box.set(.tailscale)
+        #expect(box.mode == .tailscale)
+        #expect(box.bindAddresses(tailscale: { ["::1"] }) == ["127.0.0.1", "::1"])
+    }
+
+    @Test("bindable() is the also-Tailscale list")
+    func bindableIsTailscaleMode() {
+        #expect(RemoteNetworkAddresses.bindable() == RemoteNetworkAddresses.addresses(for: .tailscale))
+        #expect(RemoteNetworkAddresses.bindable().first == "127.0.0.1")
     }
 }

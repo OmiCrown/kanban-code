@@ -11,7 +11,23 @@ public enum RemoteNetworkAddresses {
 
     /// Loopback plus the Mac's Tailscale addresses. Never a wildcard.
     public static func bindable() -> [String] {
-        [loopback] + tailscale()
+        addresses(for: .tailscale)
+    }
+
+    /// The addresses to listen on in a mode: loopback alone for this Mac
+    /// only, loopback plus the Tailscale addresses otherwise. Never a wildcard.
+    /// `tailscale` is only called in the also-Tailscale mode.
+    public static func addresses(
+        for mode: RemoteListenMode,
+        tailscale: () -> [String] = RemoteNetworkAddresses.tailscale
+    ) -> [String] {
+        switch mode {
+        case .thisMac:
+            return [loopback]
+        case .tailscale:
+            var seen: Set<String> = [loopback]
+            return [loopback] + tailscale().filter { seen.insert($0).inserted }
+        }
     }
 
     /// The Mac's addresses in Tailscale's ranges: 100.64.0.0/10 and
