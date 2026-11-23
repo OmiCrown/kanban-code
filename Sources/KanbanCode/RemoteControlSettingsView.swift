@@ -10,6 +10,7 @@ struct RemoteControlSettingsView: View {
     @State private var controller = RemoteControlController.shared
     @State private var enabled = false
     @State private var portText = String(RemoteAPI.defaultPort)
+    @State private var listenOn: RemoteListenMode = .thisMac
     @State private var loaded = false
     @State private var showAddDevice = false
     private let settingsStore = SettingsStore()
@@ -27,8 +28,13 @@ struct RemoteControlSettingsView: View {
                         .multilineTextAlignment(.trailing)
                         .onSubmit { save() }
                 }
+                Picker("Listen on", selection: $listenOn) {
+                    Text("This Mac only").tag(RemoteListenMode.thisMac)
+                    Text("Also Tailscale").tag(RemoteListenMode.tailscale)
+                }
+                .onChange(of: listenOn) { save() }
                 statusRow
-                Text("The server listens on this Mac (127.0.0.1) and on its Tailscale addresses only, never on the local network. Every request needs the token of a paired device.")
+                Text(listenFooter)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -44,7 +50,7 @@ struct RemoteControlSettingsView: View {
                             copyButton(url)
                         }
                     }
-                    if !hasTailscale {
+                    if controller.listenOn == .tailscale && !hasTailscale {
                         Text("Tailscale is not connected, so only this Mac can reach the server. Start Tailscale and the server listens on its address too.")
                             .font(.caption)
                             .foregroundStyle(.orange)
@@ -65,6 +71,11 @@ struct RemoteControlSettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
+                            if controller.listenOn == .thisMac {
+                                Text("tailscale serve forwards the tailnet to 127.0.0.1, so it opens the server to the tailnet whatever Listen on says. Run it only when you want that.")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                            }
                         }
                     }
                 }
@@ -116,6 +127,7 @@ struct RemoteControlSettingsView: View {
             let settings = (try? await settingsStore.read())?.remoteControl ?? RemoteControlSettings()
             enabled = settings.enabled
             portText = String(settings.port)
+            listenOn = settings.listenOn
             loaded = true
             await controller.refreshMagicDNSName()
             // The CLI pairs and revokes devices too; keep the list current.
@@ -147,7 +159,19 @@ struct RemoteControlSettingsView: View {
         controller.addresses.contains { $0 != RemoteNetworkAddresses.loopback }
     }
 
+    private var listenFooter: String {
+        switch listenOn {
+        case .thisMac:
+            "The server listens on this Mac (127.0.0.1) only: programs on this Mac, such as kanban remote, can reach it; phones and other Macs cannot. Every request needs the token of a paired device."
+        case .tailscale:
+            "The server listens on this Mac (127.0.0.1) and on its Tailscale addresses only, never on the local network. Every request needs the token of a paired device."
+        }
+    }
+
     private var urls: [String] {
+        if controller.listenOn == .thisMac {
+            return ["http://\(RemoteNetworkAddresses.loopback):\(controller.port)"]
+        }
         var out: [String] = []
         if let name = controller.magicDNSName { out.append("http://\(name):\(controller.port)") }
         for address in controller.addresses {
@@ -188,7 +212,7 @@ struct RemoteControlSettingsView: View {
         let port = Int(portText.trimmingCharacters(in: .whitespaces)).flatMap { (1...65535).contains($0) ? $0 : nil }
             ?? RemoteAPI.defaultPort
         portText = String(port)
-        let value = RemoteControlSettings(enabled: enabled, port: port)
+        let value = RemoteControlSettings(enabled: enabled, port: port, listenOn: listenOn)
         Task {
             var settings = (try? await settingsStore.read()) ?? Settings()
             settings.remoteControl = value
@@ -266,6 +290,11 @@ struct AddRemoteDeviceSheet: View {
             .textSelection(.enabled)
         if !controller.isRunning {
             Text("Remote control is off: turn it on so the device can connect.")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        }
+        if controller.listenOn == .thisMac {
+            Text("Listen on is This Mac only, so a phone cannot reach the server. Switch it to Also Tailscale in Settings > Remote Control for a phone.")
                 .font(.caption)
                 .foregroundStyle(.orange)
         }
