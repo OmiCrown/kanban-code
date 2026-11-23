@@ -63,6 +63,141 @@ public struct BranchMerge: Sendable {
         )
     }
 
+    // MARK: - Merge
+
+    private static let log = "merge"
+
+    /// Fast-forwards the main checkout's branch to `branch`, then carries the chosen
+    /// documentation files over. Re-runs `preflight` first, so a state that changed since
+    /// the dialog was shown is refused. A refusal or a failed `git merge` leaves the main
+    /// checkout as it was: documentation is copied only after the merge succeeded.
+    public func merge(worktreePath: String, branch: String, carryDocs: [String]) async -> MergeOutcome {
+        let state: MergePreflight
+        do {
+            state = try await preflight(worktreePath: worktreePath, branch: branch)
+        } catch {
+            return refuse(error.localizedDescription)
+        }
+        if let reason = state.blockReason { return refuse(reason) }
+
+        let wanted = Set(carryDocs)
+        let identical = state.docs.filter { $0.state == .identical }.map(\.path)
+        let toCopy = state.docs.filter { $0.state == .new && wanted.contains($0.path) }.map(\.path)
+
+        switch state.relation {
+        case .upToDate:
+            let (copied, skipped) = carry(toCopy, identical: identical, from: worktreePath, to: state.mainCheckout)
+            KanbanCodeLog.info(Self.log, "\(branch) already in \(state.mainBranch ?? "main"); carried \(copied.count) doc(s), skipped \(skipped.count)")
+            return .alreadyInMain(copied: copied, skipped: skipped)
+
+        case .fastForward:
+            let before = await run(["rev-parse", "HEAD"], state.mainCheckout)
+            guard before.succeeded else {
+                return refuse("Cannot read HEAD of \(state.mainCheckout): \(GitRepoSync.firstLine(before))")
+            }
+            let oldHead = before.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let merged = await run(["merge", "--ff-only", "refs/heads/\(branch)"], state.mainCheckout)
+            guard merged.succeeded else {
+                let text = (merged.stderr.isEmpty ? merged.stdout : merged.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
+                return refuse(text.isEmpty ? "git merge failed with exit code \(merged.exitCode)." : text)
+            }
+
+            let after = await run(["rev-parse", "HEAD"], state.mainCheckout)
+            let newHead = after.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard after.succeeded, !newHead.isEmpty else {
+                return refuse("\(branch) was merged, but HEAD of \(state.mainCheckout) cannot be read: \(GitRepoSync.firstLine(after)). No documentation was copied.")
+            }
+            let (copied, skipped) = carry(toCopy, identical: identical, from: worktreePath, to: state.mainCheckout)
+            KanbanCodeLog.info(Self.log, "merged \(branch) into \(state.mainBranch ?? "main") \(oldHead.prefix(8))..\(newHead.prefix(8)); carried \(copied.count) doc(s), skipped \(skipped.count)")
+            return .merged(oldHead: oldHead, newHead: newHead, copied: copied, skipped: skipped)
+
+        case .diverged, .mainNotOnMain:
+            // blockReason is non-nil for both; kept for exhaustiveness.
+            return refuse("\(branch) cannot be fast-forwarded into the main checkout.")
+        }
+    }
+
+    private func refuse(_ text: String) -> MergeOutcome {
+        KanbanCodeLog.warn(Self.log, "refused: \(text)")
+        return .refused(text)
+    }
+
+    // MARK: - Carrying docs
+
+    /// Copies each of `paths` from the worktree into the main checkout and returns the
+    /// copied paths and the skipped ones (`identical` first, then every file that failed a
+    /// guard). Never replaces a file and never writes through a symlink.
+    private func carry(_ paths: [String], identical: [String], from worktree: String, to mainCheckout: String) -> (copied: [String], skipped: [String]) {
+        var copied: [String] = []
+        var skipped = identical
+        for path in paths {
+            if let problem = Self.copyDoc(path, from: worktree, to: mainCheckout) {
+                KanbanCodeLog.warn(Self.log, "not copying \(path): \(problem)")
+                skipped.append(path)
+            } else {
+                copied.append(path)
+            }
+        }
+        return (copied, skipped)
+    }
+
+    private enum Kind { case absent, directory, regular, symlink, other, unreadable }
+
+    /// `lstat` of `path`: a symlink is reported as such, never followed. Only ENOENT means
+    /// absent; any other error is `unreadable`, which callers must not treat as absent.
+    private static func kind(of path: String) -> Kind {
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return errno == ENOENT ? .absent : .unreadable }
+        switch info.st_mode & S_IFMT {
+        case S_IFREG: return .regular
+        case S_IFDIR: return .directory
+        case S_IFLNK: return .symlink
+        default: return .other
+        }
+    }
+
+    /// Copies one `docs/...` file. Returns nil on success, else why it was not copied.
+    /// The checks run here, after the merge, because the state may have moved since preflight.
+    private static func copyDoc(_ path: String, from worktree: String, to mainCheckout: String) -> String? {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 2, parts[0] == "docs", !parts.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else {
+            return "not a path under docs/"
+        }
+        guard kind(of: worktree + "/" + path) == .regular else {
+            return "the source is no longer a regular file"
+        }
+        // Every existing parent under main must be a real directory; the first missing one
+        // (and so everything below it) is created by us.
+        var current = mainCheckout
+        for part in parts.dropLast() {
+            current += "/" + part
+            switch kind(of: current) {
+            case .directory: continue
+            case .absent: break
+            case .symlink: return "\(current) is a symlink"
+            case .regular, .other: return "\(current) is not a directory"
+            case .unreadable: return "\(current) cannot be read"
+            }
+            break
+        }
+        let destination = mainCheckout + "/" + path
+        switch kind(of: destination) {
+        case .absent: break
+        case .symlink: return "the destination is a symlink"
+        case .directory, .regular, .other: return "the destination already exists"
+        case .unreadable: return "the destination cannot be read"
+        }
+        do {
+            try FileManager.default.createDirectory(
+                atPath: (destination as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(atPath: worktree + "/" + path, toPath: destination)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     // MARK: - Relation
 
     private func relate(branch: String, to mainName: String, in mainCheckout: String) async throws -> BranchRelation {

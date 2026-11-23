@@ -99,6 +99,17 @@ public struct MergePreflight: Sendable, Equatable {
     }
 }
 
+/// What `BranchMerge.merge` did. `copied` and `skipped` are paths relative to the
+/// main checkout (`docs/...`).
+public enum MergeOutcome: Sendable, Equatable {
+    /// Main was fast-forwarded from `oldHead` to `newHead`.
+    case merged(oldHead: String, newHead: String, copied: [String], skipped: [String])
+    /// Main already contained the branch; only documentation files were carried.
+    case alreadyInMain(copied: [String], skipped: [String])
+    /// Nothing was merged or copied. The text is shown to the user.
+    case refused(String)
+}
+
 public enum BranchMergeError: Error, Equatable, LocalizedError {
     case refused(String)
 
