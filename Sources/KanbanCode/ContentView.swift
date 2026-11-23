@@ -1400,6 +1400,8 @@ struct ContentView: View {
     private var boardWithPresence: some View {
         boardWithAlerts
             .onChange(of: detailTab, initial: true) { reportPresenceTab() }
+            // Not next to MarkDoneReceiver: boardWithHandlers' chain is already at the type checker's limit.
+            .modifier(BranchActionReceiver(store: store))
     }
 
     private var boardWithHandlers: some View {
