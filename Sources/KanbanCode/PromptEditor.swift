@@ -467,14 +467,27 @@ final class SubmitTextView: NSTextView {
         // AppKit offers key equivalents to every view in the window, so only
         // the focused editor takes it; a hidden composer under another one
         // would take the images otherwise.
-        if window?.firstResponder === self,
-           event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-           event.charactersIgnoringModifiers == "v" {
+        if window?.firstResponder === self, Self.isPasteShortcut(event) {
             if tryPasteFiles(NSPasteboard.general) { return true }
             if tryPasteImage() { return true }
         }
         return super.performKeyEquivalent(with: event)
     }
+
+    /// Cmd+V on the V key, in any keyboard layout. With a Russian layout the
+    /// key types "м", so the character alone does not tell. A layout that
+    /// types a Latin letter or a symbol is judged by that character: on
+    /// Dvorak the key at V's position types ".", which is not a paste.
+    static func isPasteShortcut(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else { return false }
+        let typed = event.charactersIgnoringModifiers ?? ""
+        if typed.lowercased() == "v" { return true }
+        let isLetterOutsideLatin = typed.unicodeScalars.allSatisfy { $0.properties.isAlphabetic && !$0.isASCII }
+        return event.keyCode == Self.vKeyCode && !typed.isEmpty && isLetterOutsideLatin
+    }
+
+    /// kVK_ANSI_V: the position of the V key, whatever it types.
+    private static let vKeyCode: UInt16 = 9
 
     /// Replace text, sync the binding, and move cursor to start.
     private func replaceTextAndCursorToStart(_ newText: String) {
