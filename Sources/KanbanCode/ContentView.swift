@@ -1245,8 +1245,11 @@ struct ContentView: View {
             } else {
                 Text("This takes the card off the board. You can find it again under all sessions.")
             }
-        case .confirmMarkDone:
-            Text("This card has running terminals. Marking it Done will kill them.")
+        case .confirmMarkDone(let cardId):
+            // Named, because a right-click does not select the card: the dialog
+            // is the only place that says which card it is about.
+            let title = store.state.cards.first(where: { $0.id == cardId })?.displayTitle ?? "This card"
+            Text("“\(title)” has running terminals. Marking it Done will kill them.")
         case .confirmFork(let cardId):
             if store.state.cards.first(where: { $0.id == cardId })?.link.worktreeLink != nil {
                 Text("This creates a duplicate session you can resume independently. Do you want the forked session to continue from the same worktree or from the project root?")
