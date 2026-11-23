@@ -20,9 +20,15 @@ public struct RemoteControlSettings: Codable, Sendable, Equatable {
         enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? false
         let port = (try? c.decodeIfPresent(Int.self, forKey: .port)) ?? RemoteAPI.defaultPort
         self.port = (1...65535).contains(port) ? port : RemoteAPI.defaultPort
-        // Settings written before the key existed: a server that is on keeps
-        // listening on Tailscale, so a phone that pairs today keeps working.
-        listenOn = (try? c.decodeIfPresent(RemoteListenMode.self, forKey: .listenOn)) ?? (enabled ? .tailscale : .thisMac)
+        if c.contains(.listenOn), !((try? c.decodeNil(forKey: .listenOn)) ?? false) {
+            // A value that is there but unknown (a typo, a mode of a newer build)
+            // fails closed: it must not open the tailnet that the person tried to close.
+            listenOn = (try? c.decode(RemoteListenMode.self, forKey: .listenOn)) ?? .thisMac
+        } else {
+            // Settings written before the key existed: a server that is on keeps
+            // listening on Tailscale, so a phone that pairs today keeps working.
+            listenOn = enabled ? .tailscale : .thisMac
+        }
     }
 
     /// Whether going from `old` to this value needs the server stopped and

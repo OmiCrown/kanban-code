@@ -25,6 +25,21 @@ final class FakeTailscale: Sendable {
     var addresses: [String] { list.withLock { $0 } }
 }
 
+/// A byte stream that never delivers anything and records its cancel.
+final class IdleStream: RemoteByteStream {
+    private let cancelled = Mutex(false)
+    var isCancelled: Bool { cancelled.withLock { $0 } }
+    var peer: RemotePeerAddress? { nil }
+
+    func start(onClose: @escaping @Sendable () -> Void) {}
+    func receive() async throws -> Data? {
+        while !isCancelled { try await Task.sleep(for: .milliseconds(20)) }
+        return nil
+    }
+    func send(_ data: Data, completion: @escaping @Sendable (Error?) -> Void) { completion(nil) }
+    func cancel() { cancelled.withLock { $0 = true } }
+}
+
 /// The status of GET `path` on `host:port` through a session of its own, or
 /// nil when the connection fails (refused, closed, timed out).
 private func status(host: String, port: Int, path: String = "/v1/health") async -> Int? {
@@ -103,6 +118,44 @@ struct RemoteListenModeServerTests {
         await f.server.reconcile()
 
         #expect(f.server.listeningAddresses == ["127.0.0.1", "::1"])
+    }
+
+    @Test("a connection that arrives through an address after it was dropped is closed")
+    func aLateConnectionOnADroppedAddressIsClosed() async throws {
+        let (f, box) = try await makeFixture(.tailscale, tailscale: FakeTailscale(["::1"]))
+        defer { f.shutdown() }
+        box.set(.thisMac)
+        await f.server.reconcile()
+        #expect(f.server.listeningAddresses == ["127.0.0.1"])
+
+        let late = IdleStream()
+        f.server.accept(late, via: "::1")
+        #expect(late.isCancelled, "a connection through a dropped address stays open")
+
+        let ok = IdleStream()
+        f.server.accept(ok, via: "127.0.0.1")
+        #expect(!ok.isCancelled)
+        ok.cancel()
+    }
+
+    @Test("a listener bound while the mode changed is dropped again before reconcile returns")
+    func aListenerBoundDuringAModeChangeIsDropped() async throws {
+        let armed = Mutex(false)
+        let calls = Mutex(0)
+        let f = try await RemoteServerFixture(bindAddresses: {
+            guard armed.withLock({ $0 }) else { return ["127.0.0.1"] }
+            // The first read after arming still says Tailscale, as a tick that started
+            // before the user picked this Mac only; every later read says this Mac only.
+            return calls.withLock { n in
+                n += 1
+                return n == 1 ? ["127.0.0.1", "::1"] : ["127.0.0.1"]
+            }
+        })
+        defer { f.shutdown() }
+        armed.withLock { $0 = true }
+        await f.server.reconcile()
+        #expect(f.server.listeningAddresses == ["127.0.0.1"])
+        #expect(await status(host: "[::1]", port: f.server.port) == nil)
     }
 
     #if !canImport(FoundationNetworking)

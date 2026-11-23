@@ -28,11 +28,23 @@ struct RemoteListenModeSettingTests {
         #expect(try decode(#"{"enabled":false,"listenOn":"tailscale"}"#).listenOn == .tailscale)
     }
 
-    @Test("an unknown value falls back and keeps the server as it was")
-    func unknownValueFallsBack() throws {
-        let settings = try decode(#"{"enabled":true,"listenOn":"lan"}"#)
-        #expect(settings.listenOn == .tailscale)
-        #expect(settings.enabled)
+    @Test("a value that is present and unknown reads as this Mac only and keeps the server on")
+    func unknownValueFailsClosed() throws {
+        for json in [
+            #"{"enabled":true,"listenOn":"lan"}"#,
+            #"{"enabled":true,"listenOn":"this Mac"}"#,
+            #"{"enabled":true,"listenOn":5}"#,
+        ] {
+            let settings = try decode(json)
+            #expect(settings.listenOn == .thisMac, "\(json)")
+            #expect(settings.enabled, "\(json)")
+        }
+    }
+
+    @Test("a null value reads like a missing key")
+    func nullReadsLikeMissing() throws {
+        #expect(try decode(#"{"enabled":true,"listenOn":null}"#).listenOn == .tailscale)
+        #expect(try decode(#"{"enabled":false,"listenOn":null}"#).listenOn == .thisMac)
     }
 
     @Test("the mode round trips under the key listenOn")
