@@ -11,8 +11,12 @@ agent: kanban remote ... ──┘   :7780, tailnet     └─ ~/.claude transcr
 ## Network and auth
 
 - Off by default. Settings > Remote Control turns it on.
-- The server listens on port 7780 (configurable) on `127.0.0.1` and on the Mac's Tailscale addresses (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`). It never binds `0.0.0.0`, so the LAN and public Wi-Fi cannot reach it. When Tailscale comes up later, the server binds its address then.
-- `tailscale serve --bg --https=7780 http://127.0.0.1:7780` puts HTTPS with a valid certificate in front of it at `https://<mac>.<tailnet>.ts.net:7780`. Both forms work.
+- The server listens on port 7780 (configurable). Settings > Remote Control > Listen on picks the addresses. The server never binds `0.0.0.0`, so the LAN and public Wi-Fi cannot reach it in either mode.
+  - **This Mac only**: `127.0.0.1` alone. Programs on this Mac, such as `kanban remote ...`, reach it; a phone or another Mac cannot, and a request to the Mac's Tailscale address is refused.
+  - **Also Tailscale**: `127.0.0.1` and the Mac's Tailscale addresses (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`). When Tailscale comes up later, the server binds its address then. A phone and a paired peer master on another Mac need this mode.
+  - Default: a setup that already had remote control on keeps Also Tailscale; a setup that turns it on now starts with This Mac only.
+  - Changing the mode applies at once, without a restart: the port stays, a client on `127.0.0.1` is not disturbed, and the connections that came in on a Tailscale address are closed when the mode goes to This Mac only.
+- `tailscale serve --bg --https=7780 http://127.0.0.1:7780` puts HTTPS with a valid certificate in front of it at `https://<mac>.<tailnet>.ts.net:7780`. Both forms work. `tailscale serve` forwards the tailnet to `127.0.0.1`, so it opens the server to the tailnet whatever Listen on says: in This Mac only, do not run it unless you want that.
 - Every request except `GET /v1/health` needs `Authorization: Bearer <token>`. WebSocket clients that cannot set headers may pass `?token=`.
 - A token belongs to one device and has a scope:
   - `full`: everything, including terminals. For a phone.

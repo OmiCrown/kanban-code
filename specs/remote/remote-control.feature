@@ -9,10 +9,25 @@ Feature: Remote control from a phone and from other agents
     Given Settings > Remote Control is on
     And the Mac is on Tailscale
 
-  Scenario: The server is reachable only on loopback and the tailnet
+  Scenario: The server listens on loopback and the tailnet in also-Tailscale mode
+    Given Listen on is "Also Tailscale"
     Then it listens on 127.0.0.1 and the Mac's Tailscale addresses on port 7780
     And it does not listen on the LAN address
     And when Tailscale comes up after the app, the server binds its address then
+
+  Scenario: The server listens on loopback only in this-Mac-only mode
+    Given Listen on is "This Mac only"
+    Then it listens on 127.0.0.1 only
+    And a request to the Mac's Tailscale address is refused
+    And kanban remote on this Mac works
+
+  Scenario: Switching to this Mac only closes tailnet connections
+    Given Listen on is "Also Tailscale"
+    And a phone is connected over Tailscale
+    When I choose "This Mac only"
+    Then the phone's connection closes
+    And the server keeps its port
+    And a client on 127.0.0.1 is not disturbed
 
   Scenario: Pairing a phone
     When I add a device named "iPhone" with scope full in Settings > Remote Control

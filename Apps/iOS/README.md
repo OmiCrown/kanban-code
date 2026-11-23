@@ -81,7 +81,7 @@ From the command line, with Xcode signed in to your Apple account: `make ios-dev
 
 ## Connect to the Mac
 
-The Mac serves the API only on loopback and its Tailscale addresses, so the phone needs Tailscale on the same tailnet.
+The Mac serves the API only on loopback and, when Settings > Remote Control > Listen on is "Also Tailscale", on its Tailscale addresses, so the phone needs Tailscale on the same tailnet and that setting.
 
 1. On the Mac, turn on Kanban Code > Settings > Remote Control, then Add device. It shows a QR code.
 2. In the app, Scan QR code. Pasting the link or typing the URL and token works too.
