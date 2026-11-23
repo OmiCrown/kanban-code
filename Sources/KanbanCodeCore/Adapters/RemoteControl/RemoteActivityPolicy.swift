@@ -10,7 +10,7 @@ public enum RemoteActivityPolicy {
         switch scope {
         case .full: true
         case .peer: header == "1"
-        case .agent, .terminal: false
+        case .agent, .backlog, .terminal: false
         }
     }
 

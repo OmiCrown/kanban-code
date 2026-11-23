@@ -51,11 +51,17 @@ enum RemoteScopePolicy {
     /// What `kanban remote attach` calls to show a terminal.
     static let terminal: Set<String> = ["GET me", "GET board", "GET cards/*", "GET cards/*/terminal"]
 
+    /// What an agent that only files backlog cards calls: who it is, which
+    /// machines exist (`kanban remote task` asks first), and the task itself.
+    /// The body of `POST tasks` is checked in the server.
+    static let backlog: Set<String> = ["GET me", "GET machines", "POST tasks"]
+
     /// Why a device of `scope` may not call the route, or nil when it may.
     static func refusal(scope: RemoteScope, method: String, rest: [String]) -> String? {
         let allowed: Set<String>
         switch scope {
         case .full, .agent: return nil
+        case .backlog: allowed = backlog
         case .peer: allowed = peer
         case .terminal: allowed = terminal
         }

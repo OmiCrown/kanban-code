@@ -188,6 +188,7 @@ struct RemoteControlSettingsView: View {
         let scope = switch device.scope {
         case .full: "Full access"
         case .agent: "Agent, no terminals"
+        case .backlog: "Backlog only, no launching"
         case .peer: "Peer master, no terminals"
         case .terminal: "Terminals only"
         }

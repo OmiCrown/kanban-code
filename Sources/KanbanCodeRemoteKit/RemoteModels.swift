@@ -51,6 +51,8 @@ public enum RemoteScope: String, Codable, Sendable, CaseIterable {
     case full
     /// Board, tasks and prompts. Another agent.
     case agent
+    /// Creates cards in the backlog, nothing else.
+    case backlog
     /// What a paired master needs: sync, forwarding, moves, approvals. No terminal.
     case peer
     /// Card terminals only, for `kanban remote attach` on a paired master.
