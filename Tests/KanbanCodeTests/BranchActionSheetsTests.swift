@@ -189,3 +189,142 @@ struct BranchActionSheetsTests {
         #expect(MergeSheetText.resultNotice(.refused("feat/x cannot be fast-forwarded.")) == "feat/x cannot be fast-forwarded.")
     }
 }
+
+@Suite("Finish branch sheet text and plan")
+struct FinishSheetTests {
+
+    private static func state(merged: Bool = true, ignored: [IgnoredEntry] = []) -> FinishState {
+        FinishState(mainCheckout: "/repo", branchMerged: merged, ignored: ignored)
+    }
+
+    // MARK: - Remove line
+
+    @Test("no ignored files: says nothing is deleted with the worktree")
+    func removeLineNone() {
+        #expect(FinishSheetText.removeLine(for: Self.state()) == "Removes the worktree; no ignored files are deleted with it.")
+    }
+
+    @Test("one ignored folder reads in the singular, with its file count")
+    func removeLineOne() {
+        let line = FinishSheetText.removeLine(for: Self.state(ignored: [IgnoredEntry(path: ".superpowers/", fileCount: 31)]))
+        #expect(line == "Deletes 1 ignored folder: .superpowers/ (31 files)")
+    }
+
+    @Test("several ignored folders are all listed, in order")
+    func removeLineSeveral() {
+        let line = FinishSheetText.removeLine(for: Self.state(ignored: [
+            IgnoredEntry(path: ".build/", fileCount: 2000),
+            IgnoredEntry(path: ".superpowers/", fileCount: 31),
+        ]))
+        #expect(line == "Deletes 2 ignored folders: .build/ (2000 files), .superpowers/ (31 files)")
+    }
+
+    @Test("a folder with one file says '1 file'")
+    func removeLineOneFile() {
+        let line = FinishSheetText.removeLine(for: Self.state(ignored: [IgnoredEntry(path: "tmp/", fileCount: 1)]))
+        #expect(line == "Deletes 1 ignored folder: tmp/ (1 file)")
+    }
+
+    @Test("an ignored file among the folders is counted as a path and listed without a count")
+    func removeLineWithFile() {
+        let line = FinishSheetText.removeLine(for: Self.state(ignored: [
+            IgnoredEntry(path: ".env", fileCount: 1),
+            IgnoredEntry(path: "out/", fileCount: 4),
+        ]))
+        #expect(line == "Deletes 2 ignored paths: .env, out/ (4 files)")
+    }
+
+    // MARK: - Steps
+
+    @Test("steps always run close, then remove, then rebuild")
+    func stepOrder() {
+        #expect(FinishPlan.steps(closeCard: true, removeWorktree: true, rebuild: true) == [.closeCard, .removeWorktree, .rebuildApp])
+    }
+
+    @Test("unchecked steps are absent, whatever the combination")
+    func stepCombinations() {
+        #expect(FinishPlan.steps(closeCard: false, removeWorktree: false, rebuild: false).isEmpty)
+        #expect(FinishPlan.steps(closeCard: true, removeWorktree: false, rebuild: false) == [.closeCard])
+        #expect(FinishPlan.steps(closeCard: false, removeWorktree: true, rebuild: false) == [.removeWorktree])
+        #expect(FinishPlan.steps(closeCard: false, removeWorktree: false, rebuild: true) == [.rebuildApp])
+        #expect(FinishPlan.steps(closeCard: true, removeWorktree: true, rebuild: false) == [.closeCard, .removeWorktree])
+        #expect(FinishPlan.steps(closeCard: true, removeWorktree: false, rebuild: true) == [.closeCard, .rebuildApp])
+        #expect(FinishPlan.steps(closeCard: false, removeWorktree: true, rebuild: true) == [.removeWorktree, .rebuildApp])
+    }
+
+    // MARK: - Other active cards
+
+    @Test("a card alone on its branch has no other active card")
+    func aloneOnBranch() {
+        #expect(FinishPlan.otherActiveCardsOnBranch(counts: ["feat/x": 1], branch: "feat/x", cardIsActive: true) == 0)
+    }
+
+    @Test("another active card on the branch counts once")
+    func anotherCard() {
+        #expect(FinishPlan.otherActiveCardsOnBranch(counts: ["feat/x": 2], branch: "feat/x", cardIsActive: true) == 1)
+    }
+
+    @Test("an archived card is not in the counts, so the count stays as it is")
+    func archivedCard() {
+        #expect(FinishPlan.otherActiveCardsOnBranch(counts: ["feat/x": 1], branch: "feat/x", cardIsActive: false) == 1)
+    }
+
+    @Test("a branch missing from the counts has no other card, and the result never goes below 0")
+    func missingKey() {
+        #expect(FinishPlan.otherActiveCardsOnBranch(counts: [:], branch: "feat/x", cardIsActive: true) == 0)
+        #expect(FinishPlan.otherActiveCardsOnBranch(counts: [:], branch: "feat/x", cardIsActive: false) == 0)
+    }
+
+    // MARK: - Removal block reason
+
+    private static func reason(
+        merged: Bool = true, live: Bool = false, close: Bool = false, others: Int = 0, bundle: String = "/Applications/KanbanCode.app"
+    ) -> String? {
+        FinishPlan.removalBlockReason(
+            state: state(merged: merged), worktreePath: "/repo.worktrees/x", appBundlePath: bundle,
+            hasLiveSession: live, closeCard: close, otherActiveCardsOnBranch: others)
+    }
+
+    @Test("a merged branch with nothing running can be removed")
+    func removable() {
+        #expect(Self.reason() == nil)
+    }
+
+    @Test("a live session blocks removal unless the card is closed first")
+    func liveSession() {
+        #expect(Self.reason(live: true)?.contains("tmux session") == true)
+        #expect(Self.reason(live: true, close: true) == nil)
+    }
+
+    @Test("an unmerged branch blocks removal even with close card checked")
+    func unmerged() {
+        #expect(Self.reason(merged: false, close: true)?.contains("not merged") == true)
+    }
+
+    @Test("another active card on the branch blocks removal, closing this one does not help")
+    func otherCard() {
+        #expect(Self.reason(close: true, others: 1)?.contains("Another active card") == true)
+    }
+
+    @Test("the app running from the worktree blocks removal")
+    func ownApp() {
+        #expect(Self.reason(bundle: "/repo.worktrees/x/build/KanbanCode.app")?.contains("running from this worktree") == true)
+    }
+
+    // MARK: - Notices
+
+    @Test("the build notice says it only built and how to run the new app")
+    func buildNotice() {
+        let text = FinishSheetText.stepDone(.rebuildApp)
+        #expect(text.contains("built"))
+        #expect(text.contains("quit the running copy"))
+        #expect(text.contains("build/KanbanCode.app"))
+    }
+
+    @Test("the summary names the steps done, in order, and says so when none was")
+    func summary() {
+        #expect(FinishSheetText.summary(done: [.closeCard, .removeWorktree]) == "Card closed; worktree removed")
+        #expect(FinishSheetText.summary(done: [.rebuildApp]).hasPrefix("App built"))
+        #expect(FinishSheetText.summary(done: []) == "Nothing to do.")
+    }
+}
