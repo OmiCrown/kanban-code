@@ -87,8 +87,9 @@ public struct MergePreflight: Sendable, Equatable {
         case .diverged(let ahead, let behind):
             return "\(branch) and \(mainBranch ?? "main") have diverged (\(ahead.count) ahead, \(behind.count) behind); rebase \(branch) first."
         case .fastForward, .upToDate:
-            if docs.contains(where: { $0.state == .different }) {
-                return "A documentation file differs in \(mainBranch ?? "the main checkout"); resolve it first."
+            let different = docs.filter { $0.state == .different }.map(\.path)
+            if !different.isEmpty {
+                return "\(different.joined(separator: ", ")) differs in \(mainBranch ?? "the main checkout"); resolve it first."
             }
             if case .upToDate = relation, !docs.contains(where: { $0.state == .new }) {
                 return "\(branch) is already contained in \(mainBranch ?? "the main branch"); nothing to merge."

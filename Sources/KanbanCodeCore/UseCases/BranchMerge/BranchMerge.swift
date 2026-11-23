@@ -43,8 +43,9 @@ public struct BranchMerge: Sendable {
         let currentBranch: String? = current.isEmpty ? nil : current
         let onMain = currentBranch == "main" || currentBranch == "master"
 
-        let mainDirty = await dirtyPaths(in: mainCheckout)
-        let worktreeDirty = await dirtyPaths(in: worktreePath)
+        let mainDirty = try await dirtyPaths(in: mainCheckout)
+        let worktreeDirty = try await dirtyPaths(in: worktreePath)
+        let docs = try await untrackedDocs(worktree: worktreePath, mainCheckout: mainCheckout)
 
         var relation: BranchRelation = .mainNotOnMain(current: currentBranch)
         if onMain, let mainName = currentBranch {
@@ -58,7 +59,7 @@ public struct BranchMerge: Sendable {
             relation: relation,
             mainDirtyPaths: mainDirty,
             worktreeDirtyPaths: worktreeDirty,
-            docs: []
+            docs: docs
         )
     }
 
@@ -95,10 +96,48 @@ public struct BranchMerge: Sendable {
 
     // MARK: - Dirty paths
 
-    private func dirtyPaths(in dir: String) async -> [String] {
-        let status = await run(["status", "--porcelain=v1", "-z"], dir)
-        guard status.succeeded else { return [] }
+    /// `--no-optional-locks` keeps a read-only preflight from refreshing the index or
+    /// taking `index.lock` in the main checkout. A failing `git status` throws: an
+    /// unreadable tree must not look clean.
+    private func dirtyPaths(in dir: String) async throws -> [String] {
+        let status = await run(["--no-optional-locks", "status", "--porcelain=v1", "-z"], dir)
+        guard status.succeeded else {
+            throw BranchMergeError.refused("Cannot read the git status of \(dir): \(GitRepoSync.firstLine(status))")
+        }
         return Self.parseStatus(status.stdout)
+    }
+
+    // MARK: - Docs
+
+    /// Untracked, non-ignored regular files under `docs/` of the worktree, compared
+    /// with the same relative path in the main checkout, sorted by path. Reads only.
+    private func untrackedDocs(worktree: String, mainCheckout: String) async throws -> [DocCandidate] {
+        let listing = await run(["ls-files", "--others", "--exclude-standard", "-z", "--", "docs/"], worktree)
+        guard listing.succeeded else {
+            throw BranchMergeError.refused("Cannot list documentation files in \(worktree): \(GitRepoSync.firstLine(listing))")
+        }
+        // Entries are NUL separated; every path starts with `docs/`, so the runner's
+        // whitespace trimming cannot eat the start of the first one.
+        let paths = listing.stdout.split(separator: "\u{0}", omittingEmptySubsequences: true).map(String.init)
+        var docs: [DocCandidate] = []
+        for path in paths.sorted() {
+            let source = worktree + "/" + path
+            // attributesOfItem uses lstat: a symlink reports .typeSymbolicLink and is skipped.
+            guard let type = try? FileManager.default.attributesOfItem(atPath: source)[.type] as? FileAttributeType,
+                  type == .typeRegular else { continue }
+            let target = mainCheckout + "/" + path
+            let state: DocCandidate.State
+            if (try? FileManager.default.attributesOfItem(atPath: target)) == nil {
+                state = .new
+            } else if let mine = FileManager.default.contents(atPath: source),
+                      let theirs = FileManager.default.contents(atPath: target), mine == theirs {
+                state = .identical
+            } else {
+                state = .different
+            }
+            docs.append(DocCandidate(path: path, state: state))
+        }
+        return docs
     }
 
     /// Paths from `status --porcelain=v1 -z`: entries `XY path`, NUL separated; a
