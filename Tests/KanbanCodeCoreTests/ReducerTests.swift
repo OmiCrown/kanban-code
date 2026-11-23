@@ -416,6 +416,56 @@ struct ReducerTests {
         #expect(state.pinnedCards.map(\.id) == ["card_pin_second", "card_pin_first"])
     }
 
+    // MARK: - A card placed in Done by hand
+
+    private func manualDoneCard(tmux: TmuxLink? = nil) -> Link {
+        var link = makeLink(
+            id: "card_done",
+            column: .done,
+            tmuxLink: tmux,
+            sessionLink: SessionLink(sessionId: "s_done")
+        )
+        link.manualOverrides.column = true
+        return link
+    }
+
+    private func reconcile(_ state: inout AppState, activity: ActivityState?, tmuxSessions: Set<String> = []) {
+        let link = state.links["card_done"]!
+        let _ = Reducer.reduce(state: &state, action: .reconciled(ReconciliationResult(
+            links: [link],
+            sessions: [],
+            activityMap: activity.map { ["s_done": $0] } ?? [:],
+            tmuxSessions: tmuxSessions
+        )))
+        state.rebuildCards()
+    }
+
+    @Test("A manual Done survives reconciliation that sees the session idle")
+    func manualDoneSurvivesIdleActivity() {
+        var state = stateWith([manualDoneCard()])
+        reconcile(&state, activity: .idleWaiting)
+        #expect(state.links["card_done"]?.column == .done)
+        #expect(state.links["card_done"]?.manualOverrides.column == true)
+    }
+
+    @Test("A manual Done survives reconciliation that finds the card's tmux session gone")
+    func manualDoneSurvivesDeadTmux() {
+        var state = stateWith([manualDoneCard(tmux: TmuxLink(sessionName: "s-dead"))])
+        // No activity data: the card's dead terminal is the only signal, which is the
+        // `else if` branch of the override clearing.
+        reconcile(&state, activity: nil, tmuxSessions: [])
+        #expect(state.links["card_done"]?.column == .done)
+        #expect(state.links["card_done"]?.manualOverrides.column == true)
+        #expect(state.links["card_done"]?.tmuxLink == nil, "the dead terminal link is still cleaned up")
+    }
+
+    @Test("A Done card whose own session starts working goes back to In Progress")
+    func manualDoneYieldsToActiveWork() {
+        var state = stateWith([manualDoneCard(tmux: TmuxLink(sessionName: "s-live"))])
+        reconcile(&state, activity: .activelyWorking, tmuxSessions: ["s-live"])
+        #expect(state.links["card_done"]?.column == .inProgress)
+    }
+
     // MARK: - Delete Card
 
     @Test("deleteCard removes link and returns cleanup effects")

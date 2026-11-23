@@ -2923,12 +2923,17 @@ public enum Reducer {
 
                 // Clear manual column override when we have definitive data.
                 // Backlog is sticky — the user explicitly parked this card.
+                // So is Done: the owner closed it by hand (a project that merges
+                // without a PR has no merged PR to prove it). A turn running in
+                // the card's own session still moves it to In Progress through
+                // `AssignColumn`, and the override is cleared on the next pass.
                 if link.manualOverrides.column && link.column != .backlog {
+                    let keepsManualPlacement = link.column == .done
                     if activity != nil && activity != .stale {
-                        link.manualOverrides.column = false
+                        if !keepsManualPlacement { link.manualOverrides.column = false }
                     } else if link.tmuxLink != nil && !hasTmux {
                         link.tmuxLink = nil
-                        link.manualOverrides.column = false
+                        if !keepsManualPlacement { link.manualOverrides.column = false }
                     }
                 }
 
