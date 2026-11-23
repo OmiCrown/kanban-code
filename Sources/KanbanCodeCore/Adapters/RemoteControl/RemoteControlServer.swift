@@ -560,7 +560,10 @@ public final class RemoteControlServer: Sendable {
                 }
                 _ = try RemotePromptImages.decode(body.images)
                 // An agent's task is never the human's, whatever it claims.
-                if device.scope == .agent { body.human = nil }
+                if device.scope == .agent || device.scope == .backlog { body.human = nil }
+                if device.scope == .backlog, let refusal = await Self.backlogRefusal(body, host: host) {
+                    return .response(.error(403, refusal))
+                }
                 return .response(.json(try await host.createTask(body), status: 201))
 
             case ("POST", "cards/*/prompt"):
@@ -770,6 +773,26 @@ public final class RemoteControlServer: Sendable {
         default:
             return .error(404, "no route for \(method) /v1/\(rest.joined(separator: "/"))")
         }
+    }
+
+    /// Why a `backlog` device may not create this task, or nil. It files a card and nothing runs:
+    /// no launch, no other machine, no repository to clone. Everything else in the body is stored
+    /// on the card and does nothing until the human launches it.
+    static func backlogRefusal(_ body: RemoteTaskRequest, host: any RemoteControlHost) async -> String? {
+        guard body.launch == false else {
+            return "the backlog scope only creates backlog cards: send launch=false"
+        }
+        if let machine = body.machine?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            let this = await host.machines().first { $0.kind == .this }?.name
+            let names = ["mac"] + (this.map { [$0] } ?? [])
+            guard names.contains(where: { $0.caseInsensitiveCompare(machine) == .orderedSame }) else {
+                return "the backlog scope cannot choose another machine"
+            }
+        }
+        if MasterRemoteControlHost.isRepositoryURL(body.project) {
+            return "the backlog scope cannot name a repository URL as the project"
+        }
+        return nil
     }
 
     /// `?all=1` asks for every card instead of the working set.
