@@ -70,7 +70,7 @@ public struct BranchMerge: Sendable {
     /// Fast-forwards the main checkout's branch to `branch`, then carries the chosen
     /// documentation files over. Re-runs `preflight` first, so a state that changed since
     /// the dialog was shown is refused. A refusal or a failed `git merge` leaves the main
-    /// checkout as it was: documentation is copied only after the merge succeeded.
+    /// checkout as it was: documentation is checked before the merge and copied only after it succeeded.
     public func merge(worktreePath: String, branch: String, carryDocs: [String]) async -> MergeOutcome {
         let state: MergePreflight
         do {
@@ -83,6 +83,14 @@ public struct BranchMerge: Sendable {
         let wanted = Set(carryDocs)
         let identical = state.docs.filter { $0.state == .identical }.map(\.path)
         let toCopy = state.docs.filter { $0.state == .new && wanted.contains($0.path) }.map(\.path)
+
+        // A doc that cannot be carried stops the merge here, while main is still untouched.
+        // A relation that cannot merge is refused by blockReason above.
+        for path in toCopy {
+            if let problem = Self.docProblem(path, from: worktreePath, to: state.mainCheckout) {
+                return refuse("\(path) cannot be carried into \(state.mainBranch ?? "the main checkout"): \(problem). Deselect it or fix it first; nothing was merged.")
+            }
+        }
 
         switch state.relation {
         case .upToDate:
@@ -157,18 +165,29 @@ public struct BranchMerge: Sendable {
         }
     }
 
-    /// Copies one `docs/...` file. Returns nil on success, else why it was not copied.
-    /// The checks run here, after the merge, because the state may have moved since preflight.
-    private static func copyDoc(_ path: String, from worktree: String, to mainCheckout: String) -> String? {
+    /// Why `path` cannot be carried into the main checkout right now, or nil when it can.
+    /// Reads with `lstat` only; never writes. Run before the merge (so a problem refuses it)
+    /// and again right before each copy (the state may have moved since).
+    private static func docProblem(_ path: String, from worktree: String, to mainCheckout: String) -> String? {
         let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard parts.count >= 2, parts[0] == "docs", !parts.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }) else {
-            return "not a path under docs/"
+            return "it is not a path under docs/"
         }
-        guard kind(of: worktree + "/" + path) == .regular else {
-            return "the source is no longer a regular file"
+        // The source: real directories down to a regular file, no symlink anywhere on the way.
+        var source = worktree
+        for part in parts.dropLast() {
+            source += "/" + part
+            switch kind(of: source) {
+            case .directory: continue
+            case .symlink: return "\(source) is a symlink"
+            default: return "\(source) is not a readable directory"
+            }
+        }
+        guard kind(of: source + "/" + parts[parts.count - 1]) == .regular else {
+            return "the source is not a regular file"
         }
         // Every existing parent under main must be a real directory; the first missing one
-        // (and so everything below it) is created by us.
+        // (and so everything below it) is created by the copy.
         var current = mainCheckout
         for part in parts.dropLast() {
             current += "/" + part
@@ -181,13 +200,18 @@ public struct BranchMerge: Sendable {
             }
             break
         }
-        let destination = mainCheckout + "/" + path
-        switch kind(of: destination) {
-        case .absent: break
-        case .symlink: return "the destination is a symlink"
-        case .directory, .regular, .other: return "the destination already exists"
-        case .unreadable: return "the destination cannot be read"
+        switch kind(of: mainCheckout + "/" + path) {
+        case .absent: return nil
+        case .symlink: return "\(mainCheckout + "/" + path) is a symlink"
+        case .directory, .regular, .other: return "\(mainCheckout + "/" + path) already exists"
+        case .unreadable: return "\(mainCheckout + "/" + path) cannot be read"
         }
+    }
+
+    /// Copies one `docs/...` file. Returns nil on success, else why it was not copied.
+    private static func copyDoc(_ path: String, from worktree: String, to mainCheckout: String) -> String? {
+        if let problem = docProblem(path, from: worktree, to: mainCheckout) { return problem }
+        let destination = mainCheckout + "/" + path
         do {
             try FileManager.default.createDirectory(
                 atPath: (destination as NSString).deletingLastPathComponent, withIntermediateDirectories: true)

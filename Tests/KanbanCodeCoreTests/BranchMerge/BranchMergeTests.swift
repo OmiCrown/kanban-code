@@ -658,16 +658,67 @@ struct BranchMergeTests {
         try FileManager.default.createDirectory(atPath: outside, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(atPath: fx.repo + "/docs", withDestinationPath: outside)
 
+        let before = try await snapshot(fx)
+
         let outcome = await BranchMerge().merge(
             worktreePath: wt, branch: "feat-a", carryDocs: ["docs/a.md", "docs/sub/b.md"])
+
+        guard case .refused(let text) = outcome else {
+            Issue.record("expected refused, got \(outcome)")
+            return
+        }
+        #expect(text.contains("docs/a.md"))
+        #expect(text.contains("symlink"))
+        #expect(try await snapshot(fx) == before)  // main did not move
+        #expect(try FileManager.default.contentsOfDirectory(atPath: outside).isEmpty)
+    }
+
+    @Test func symlinkedDocsDirectoryAppearingDuringMergeIsNotWrittenThrough() async throws {
+        let fx = try await GitFixture.make()
+        defer { fx.cleanup() }
+        let wt = try await fx.addWorktree("a", branch: "feat-a", sibling: true)
+        try await fx.commit(in: wt, file: "a.txt", content: "a")
+        try fx.write("docs/a.md", in: wt, "spec\n")
+        let outside = fx.root + "/outside"
+        try FileManager.default.createDirectory(atPath: outside, withIntermediateDirectories: true)
+        let repo = fx.repo
+        let merge = BranchMerge(run: runner {
+            try FileManager.default.createSymbolicLink(atPath: repo + "/docs", withDestinationPath: outside)
+        })
+
+        let outcome = await merge.merge(worktreePath: wt, branch: "feat-a", carryDocs: ["docs/a.md"])
 
         guard case .merged(_, _, let copied, let skipped) = outcome else {
             Issue.record("expected merged, got \(outcome)")
             return
         }
         #expect(copied.isEmpty)
-        #expect(skipped == ["docs/a.md", "docs/sub/b.md"])
+        #expect(skipped == ["docs/a.md"])
         #expect(try FileManager.default.contentsOfDirectory(atPath: outside).isEmpty)
+    }
+
+    @Test func worktreeDocsDirectorySwappedForSymlinkIsNotFollowed() async throws {
+        let fx = try await GitFixture.make()
+        defer { fx.cleanup() }
+        let wt = try await fx.addWorktree("a", branch: "feat-a", sibling: true)
+        try await fx.commit(in: wt, file: "a.txt", content: "a")
+        try fx.write("docs/sub/b.md", in: wt, "spec\n")
+        try fx.write("elsewhere/b.md", in: fx.root, "secret\n")
+        let (sub, elsewhere) = (wt + "/docs/sub", fx.root + "/elsewhere")
+        let merge = BranchMerge(run: runner {
+            try FileManager.default.removeItem(atPath: sub)
+            try FileManager.default.createSymbolicLink(atPath: sub, withDestinationPath: elsewhere)
+        })
+
+        let outcome = await merge.merge(worktreePath: wt, branch: "feat-a", carryDocs: ["docs/sub/b.md"])
+
+        guard case .merged(_, _, let copied, let skipped) = outcome else {
+            Issue.record("expected merged, got \(outcome)")
+            return
+        }
+        #expect(copied.isEmpty)
+        #expect(skipped == ["docs/sub/b.md"])
+        #expect(!FileManager.default.fileExists(atPath: fx.repo + "/docs/sub/b.md"))
     }
 
     @Test func symlinkedSubdirectoryInMainIsNotWrittenThrough() async throws {
@@ -681,14 +732,17 @@ struct BranchMergeTests {
         try FileManager.default.createDirectory(atPath: fx.repo + "/docs", withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(atPath: fx.repo + "/docs/sub", withDestinationPath: outside)
 
+        let before = try await snapshot(fx)
+
         let outcome = await BranchMerge().merge(worktreePath: wt, branch: "feat-a", carryDocs: ["docs/sub/b.md"])
 
-        guard case .merged(_, _, let copied, let skipped) = outcome else {
-            Issue.record("expected merged, got \(outcome)")
+        guard case .refused(let text) = outcome else {
+            Issue.record("expected refused, got \(outcome)")
             return
         }
-        #expect(copied.isEmpty)
-        #expect(skipped == ["docs/sub/b.md"])
+        #expect(text.contains("docs/sub/b.md"))
+        #expect(text.contains("symlink"))
+        #expect(try await snapshot(fx) == before)  // main did not move
         #expect(try FileManager.default.contentsOfDirectory(atPath: outside).isEmpty)
     }
 
