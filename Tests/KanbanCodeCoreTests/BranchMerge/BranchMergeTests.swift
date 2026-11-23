@@ -399,17 +399,25 @@ struct BranchMergeTests {
         defer { fx.cleanup() }
         let wt = try await fx.addWorktree("a", branch: "feat-a", sibling: true)
         try await fx.commit(in: wt, file: "a.txt", content: "a")
-        try await fx.commit(in: fx.repo, file: "m.txt", content: "m")  // diverged: git cannot fast-forward
+        // Preflight allows this merge (a fast-forward; dirty main is only listed), but
+        // git refuses it: main has an uncommitted edit to a file the branch changes.
+        // A diverged branch would not do: preflight refuses that before any copy.
+        try await fx.commit(in: wt, file: "README.md", content: "from the branch\n")
+        try fx.write("README.md", in: fx.repo, "edited in main\n")
         try fx.write("docs/a.md", in: wt, "spec\n")
+        let seen = try await BranchMerge().preflight(worktreePath: wt, branch: "feat-a")
+        #expect(seen.blockReason == nil)  // so the merge call is reached
 
         let outcome = await BranchMerge().merge(worktreePath: wt, branch: "feat-a", carryDocs: ["docs/a.md"])
 
-        guard case .refused = outcome else {
+        guard case .refused(let text) = outcome else {
             Issue.record("expected refused, got \(outcome)")
             return
         }
+        #expect(text.contains("README.md"))  // git's own refusal, not the preflight's
         #expect(!FileManager.default.fileExists(atPath: fx.repo + "/docs/a.md"))
         #expect(!FileManager.default.fileExists(atPath: fx.repo + "/docs"))
+        #expect(try String(contentsOfFile: fx.repo + "/README.md", encoding: .utf8) == "edited in main\n")
     }
 
     @Test func divergedRefusesAndTouchesNothing() async throws {
