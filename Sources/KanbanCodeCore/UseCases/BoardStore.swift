@@ -13,6 +13,8 @@ public enum DialogState: Equatable, Sendable {
     case none
     case confirmDelete(cardId: String)
     case confirmArchive(cardId: String)
+    /// Close a card whose session still runs: the session is stopped.
+    case confirmMarkDone(cardId: String)
     case confirmFork(cardId: String)
     case confirmCheckpoint(cardId: String, turnIndex: Int, turnLineNumber: Int)
     case confirmWorktreeCleanup(cardId: String)

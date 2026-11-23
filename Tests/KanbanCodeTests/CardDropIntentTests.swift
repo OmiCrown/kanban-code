@@ -56,6 +56,41 @@ struct CardDropIntentTests {
         )
     }
 
+    private func waitingCard(prLinks: [PRLink] = []) -> KanbanCodeCard {
+        KanbanCodeCard(
+            link: Link(
+                id: "card_local",
+                name: "Merged locally",
+                projectPath: "/test/project",
+                column: .waiting,
+                source: .manual,
+                prLinks: prLinks
+            )
+        )
+    }
+
+    @Test("A project that merges without a PR turns a drop on Done into Mark as Done")
+    func doneWithoutPRResolvesToMarkDone() {
+        let intent = CardDropIntent.resolve(waitingCard(), to: .done, mergeWithoutPR: true)
+        #expect(intent == .markDone)
+        #expect(intent.isAllowed)
+    }
+
+    @Test("A merged PR still makes the drop on Done a plain move, whatever the project says")
+    func doneWithMergedPRIsPlainMove() {
+        let merged = waitingCard(prLinks: [PRLink(number: 7, status: .merged)])
+        #expect(CardDropIntent.resolve(merged, to: .done, mergeWithoutPR: true) == .move)
+        #expect(CardDropIntent.resolve(merged, to: .done) == .move)
+    }
+
+    @Test("In Review still needs a PR in a project that merges without one")
+    func reviewStillNeedsPRWithFlag() {
+        #expect(
+            CardDropIntent.resolve(waitingCard(), to: .inReview, mergeWithoutPR: true)
+                == .invalid("Cannot move to In Review - card has no pull request")
+        )
+    }
+
     @Test("Archived cards can be restored to Backlog")
     func archivedCardMovesBackToBacklog() {
         let card = KanbanCodeCard(

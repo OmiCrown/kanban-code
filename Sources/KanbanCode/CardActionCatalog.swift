@@ -44,6 +44,8 @@ struct CardActionEnvironment {
     var pauseMachine: (String) -> Void
     var destroyMachine: (String) -> Void
     var unarchive: (String) -> Void
+    /// Close the card by hand (Mark as Done); the app confirms first when a session is live.
+    var markDone: (String) -> Void = { _ in }
     var requestAddLink: (String) -> Void
     /// Where the card can continue: this Mac, the peer masters, the ssh
     /// machines this Mac drives.
@@ -63,6 +65,13 @@ struct CardActionEnvironment {
             pauseMachine: { AppServices.pauseMachine?($0) },
             destroyMachine: { AppServices.destroyMachine?($0) },
             unarchive: { AppComposition.shared.store.dispatch(.unarchiveCard(cardId: $0)) },
+            markDone: { cardId in
+                NotificationCenter.default.post(
+                    name: .kanbanCodeMarkDone,
+                    object: nil,
+                    userInfo: ["cardId": cardId]
+                )
+            },
             requestAddLink: { cardId in
                 NotificationCenter.default.post(
                     name: .kanbanCodeAddLink,
@@ -104,6 +113,8 @@ struct CardActionCatalog {
     var githubBaseURL: String?
     var availableProjects: [(name: String, path: String)] = []
     var enabledAssistants: [CodingAssistant] = []
+    /// The card's project merges without a PR, so it can be closed by hand.
+    var offersMarkDone = false
     let environment: CardActionEnvironment
 
     var sections: [[CardActionItem]] {
@@ -466,12 +477,22 @@ struct CardActionCatalog {
             if card.link.source != .githubIssue { items.append(delete) }
             return items
         }
+        var items: [CardActionItem] = []
+        // A boxd machine's lifecycle belongs to Archive, which destroys it.
+        if offersMarkDone, card.column != .done, card.link.remote?.mode != .boxd {
+            let cardId = card.id
+            items.append(CardActionItem(
+                id: "markDone", title: "Mark as Done", icon: "checkmark.circle", paletteTitle: "Mark Card as Done",
+                kind: .perform { environment.markDone(cardId) }
+            ))
+        }
         if let onArchive = actions.onArchive {
-            return [CardActionItem(
+            items.append(CardActionItem(
                 id: "archive", title: "Archive", icon: "archivebox", paletteTitle: "Archive Card",
                 shortcut: .archiveCard, kind: .perform(onArchive)
-            )]
+            ))
+            return items
         }
-        return [delete]
+        return items + [delete]
     }
 }

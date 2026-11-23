@@ -14,6 +14,7 @@ struct CardActionCatalogTests {
         var hits: Set<String> = []
         var copied: [String] = []
         var unarchived: [String] = []
+        var markedDone: [String] = []
     }
 
     private static func actions(_ r: Recorder, archive: Bool = true) -> CardActionsMenuActions {
@@ -53,6 +54,7 @@ struct CardActionCatalogTests {
             pauseMachine: { _ in },
             destroyMachine: { _ in },
             unarchive: { r.unarchived.append($0) },
+            markDone: { r.markedDone.append($0) },
             requestAddLink: { _ in },
             continueTargets: [("box", "box")],
             isSharedMachine: { _ in false }
@@ -81,7 +83,8 @@ struct CardActionCatalogTests {
     private static func catalog(
         _ card: KanbanCodeCard,
         _ r: Recorder,
-        archive: Bool = true
+        archive: Bool = true,
+        offersMarkDone: Bool = false
     ) -> CardActionCatalog {
         CardActionCatalog(
             card: card,
@@ -89,8 +92,53 @@ struct CardActionCatalogTests {
             showBranchInfo: true,
             availableProjects: [(name: "Other", path: "/other")],
             enabledAssistants: CodingAssistant.allCases,
+            offersMarkDone: offersMarkDone,
             environment: environment(r)
         )
+    }
+
+    private static func markDoneItem(_ catalog: CardActionCatalog) -> CardActionItem? {
+        catalog.sections.joined().first { $0.id == "markDone" }
+    }
+
+    @Test("Mark as Done is offered when the project merges without a PR")
+    func markDoneOfferedWithFlag() throws {
+        let catalog = Self.catalog(Self.card("a", column: .waiting), Recorder(), offersMarkDone: true)
+        let item = try #require(Self.markDoneItem(catalog))
+        #expect(item.title == "Mark as Done")
+        #expect(catalog.paletteEntries.contains { $0.title == "Mark Card as Done" })
+    }
+
+    @Test("Mark as Done is not offered without the flag")
+    func markDoneHiddenWithoutFlag() {
+        let catalog = Self.catalog(Self.card("a", column: .waiting), Recorder())
+        #expect(Self.markDoneItem(catalog) == nil)
+    }
+
+    @Test("Mark as Done is not offered for a card already in Done or archived")
+    func markDoneHiddenInDoneAndArchived() {
+        let done = Self.catalog(Self.card("d", column: .done), Recorder(), offersMarkDone: true)
+        let archived = Self.catalog(Self.card("x", column: .allSessions, archived: true), Recorder(), offersMarkDone: true)
+        #expect(Self.markDoneItem(done) == nil)
+        #expect(Self.markDoneItem(archived) == nil)
+    }
+
+    @Test("Mark as Done is not offered for a card on a boxd machine")
+    func markDoneHiddenOnBoxdMachine() {
+        var link = Self.card("b", column: .waiting).link
+        link.remote = RemoteLink(mode: .boxd, machineName: "kanban-box")
+        let catalog = Self.catalog(KanbanCodeCard(link: link), Recorder(), offersMarkDone: true)
+        #expect(Self.markDoneItem(catalog) == nil)
+    }
+
+    @Test("Mark as Done asks the environment to close this card")
+    func markDoneRunsEnvironment() throws {
+        let r = Recorder()
+        let catalog = Self.catalog(Self.card("run", column: .waiting), r, offersMarkDone: true)
+        let item = try #require(Self.markDoneItem(catalog))
+        guard case .perform(let run) = item.kind else { Issue.record("not a plain action"); return }
+        run()
+        #expect(r.markedDone == ["run"])
     }
 
     @Test("the palette reaches every action of CardActionsMenuActions")

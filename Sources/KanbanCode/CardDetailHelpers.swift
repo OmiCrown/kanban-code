@@ -110,6 +110,7 @@ struct CardActionsMenu: View {
             githubBaseURL: githubBaseURL,
             availableProjects: availableProjects,
             enabledAssistants: enabledAssistants,
+            offersMarkDone: AppComposition.shared.store.state.mergesWithoutPR(card.link),
             environment: .live(for: card)
         )
         let sections = catalog.sections
@@ -571,5 +572,22 @@ struct EditPromptSheet: View {
         }
         onSave(text.trimmingCharacters(in: .whitespacesAndNewlines), allImages)
         isPresented = false
+    }
+}
+
+// MARK: - Mark as Done receiver
+
+/// Listens for the "Mark as Done" menu item. A modifier of its own, because
+/// ContentView's `body` already carries so many `.onReceive` calls that one
+/// more makes the type checker give up.
+struct MarkDoneReceiver: ViewModifier {
+    let perform: (String) -> Void
+
+    func body(content: Content) -> some View {
+        content.onReceive(NotificationCenter.default.publisher(for: .kanbanCodeMarkDone).receive(on: RunLoop.main)) { notification in
+            if let cardId = notification.userInfo?["cardId"] as? String {
+                perform(cardId)
+            }
+        }
     }
 }

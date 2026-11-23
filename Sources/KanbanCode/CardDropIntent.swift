@@ -5,6 +5,8 @@ enum CardDropIntent: Equatable {
     case start
     case resume
     case archive
+    /// Close the card by hand: only in a project that merges without a PR.
+    case markDone
     case invalid(String)
 
     var isAllowed: Bool {
@@ -14,7 +16,12 @@ enum CardDropIntent: Equatable {
         return true
     }
 
-    static func resolve(_ card: KanbanCodeCard, to column: KanbanCodeColumn) -> CardDropIntent {
+    /// `mergeWithoutPR` is the card's project setting (`AppState.mergesWithoutPR`).
+    static func resolve(
+        _ card: KanbanCodeCard,
+        to column: KanbanCodeColumn,
+        mergeWithoutPR: Bool = false
+    ) -> CardDropIntent {
         switch column {
         case .inProgress:
             if card.link.tmuxLink != nil {
@@ -37,6 +44,7 @@ enum CardDropIntent: Equatable {
         case .done:
             let hasMergedPR = card.link.prLinks.contains { $0.status == .merged }
             if !hasMergedPR {
+                if mergeWithoutPR { return .markDone }
                 return .invalid("Cannot move to Done - no merged pull request")
             }
             return .move

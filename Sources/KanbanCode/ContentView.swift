@@ -306,7 +306,7 @@ struct ContentView: View {
             },
             onRefreshBacklog: { Task { await store.refreshBacklog() } },
             canDropCard: { card, column in
-                CardDropIntent.resolve(card, to: column).isAllowed
+                CardDropIntent.resolve(card, to: column, mergeWithoutPR: store.state.mergesWithoutPR(card.link)).isAllowed
             },
             onDropCard: { cardId, column in handleDrop(cardId: cardId, to: column) },
             onMergeCards: { sourceId, targetId in
@@ -382,7 +382,7 @@ struct ContentView: View {
                 store.dispatch(.mergeCards(sourceId: sourceId, targetId: targetId))
             },
             canDropCard: { card, column in
-                CardDropIntent.resolve(card, to: column).isAllowed
+                CardDropIntent.resolve(card, to: column, mergeWithoutPR: store.state.mergesWithoutPR(card.link)).isAllowed
             },
             onNewTask: { showNewTask = true },
             onCardClicked: { cardId in
@@ -1057,6 +1057,7 @@ struct ContentView: View {
         case .none: return ""
         case .confirmDelete: return "Delete Card"
         case .confirmArchive: return "Archive Card?"
+        case .confirmMarkDone: return "Mark as Done?"
         case .confirmFork: return "Fork Session?"
         case .confirmCheckpoint: return "Restore to this point?"
         case .confirmWorktreeCleanup: return "Cleanup Worktree?"
@@ -1110,6 +1111,13 @@ struct ContentView: View {
             }
             // Return archives, so the shortcut is a two-key action rather than
             // a keystroke followed by a trip to the mouse.
+            .keyboardShortcut(.defaultAction)
+        case .confirmMarkDone(let cardId):
+            Button("Cancel", role: .cancel) { dismissDialog() }
+            Button("Mark Done & Kill Terminals", role: .destructive) {
+                store.dispatch(.markCardDone(cardId: cardId))
+                dismissDialog()
+            }
             .keyboardShortcut(.defaultAction)
         case .confirmArchiveWithMachine(let cardId):
             Button("Cancel", role: .cancel) { dismissDialog() }
@@ -1237,6 +1245,8 @@ struct ContentView: View {
             } else {
                 Text("This takes the card off the board. You can find it again under all sessions.")
             }
+        case .confirmMarkDone:
+            Text("This card has running terminals. Marking it Done will kill them.")
         case .confirmFork(let cardId):
             if store.state.cards.first(where: { $0.id == cardId })?.link.worktreeLink != nil {
                 Text("This creates a duplicate session you can resume independently. Do you want the forked session to continue from the same worktree or from the project root?")
@@ -1561,6 +1571,7 @@ struct ContentView: View {
                     Task { await engine.processSubagentCommand(id: requestId) }
                 }
             }
+            .modifier(MarkDoneReceiver { markCardDone(cardId: $0) })
             .onReceive(NotificationCenter.default.publisher(for: .kanbanCodeAddLink).receive(on: RunLoop.main)) { notification in
                 if let cardId = notification.userInfo?["cardId"] as? String {
                     showAddLinkCardId = cardId
@@ -2372,6 +2383,7 @@ struct ContentView: View {
             showBranchInfo: true,
             availableProjects: projectList,
             enabledAssistants: assistantRegistry.available,
+            offersMarkDone: store.state.mergesWithoutPR(card.link),
             environment: .live(for: card)
         )
         var cmds = catalog.paletteEntries.map { entry in
@@ -3040,11 +3052,24 @@ struct ContentView: View {
         }
     }
 
+    /// Close a card by hand (a project that merges without a PR). A live
+    /// session is stopped, after the owner confirms.
+    private func markCardDone(cardId: String) {
+        guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
+        if card.link.tmuxLink != nil {
+            presentDialog(.confirmMarkDone(cardId: cardId))
+        } else {
+            store.dispatch(.markCardDone(cardId: cardId))
+        }
+    }
+
     // MARK: - Drag & Drop
 
     private func handleDrop(cardId: String, to column: KanbanCodeColumn) {
         guard let card = store.state.cards.first(where: { $0.id == cardId }) else { return }
-        switch CardDropIntent.resolve(card, to: column) {
+        switch CardDropIntent.resolve(card, to: column, mergeWithoutPR: store.state.mergesWithoutPR(card.link)) {
+        case .markDone:
+            markCardDone(cardId: cardId)
         case .start:
             startCard(cardId: cardId)
         case .resume:
