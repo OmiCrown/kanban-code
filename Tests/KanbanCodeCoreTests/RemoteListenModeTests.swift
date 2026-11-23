@@ -102,3 +102,30 @@ struct RemoteListenAddressTests {
         #expect(RemoteNetworkAddresses.bindable().first == "127.0.0.1")
     }
 }
+
+@Suite("Remote pairing URL")
+struct RemoteBaseURLTests {
+    @Test("this Mac only is always the loopback URL, even with a MagicDNS name and a Tailscale address")
+    func thisMacIsLoopback() {
+        let url = RemoteBaseURL.make(listenOn: .thisMac, magicDNSName: "mac.tailnet.ts.net", addresses: ["127.0.0.1", "100.64.0.5"], port: 7780)
+        #expect(url == "http://127.0.0.1:7780")
+    }
+
+    @Test("also Tailscale prefers the MagicDNS name")
+    func tailscaleUsesTheName() {
+        let url = RemoteBaseURL.make(listenOn: .tailscale, magicDNSName: "mac.tailnet.ts.net", addresses: ["127.0.0.1", "100.64.0.5"], port: 7780)
+        #expect(url == "http://mac.tailnet.ts.net:7780")
+    }
+
+    @Test("also Tailscale without a name uses the first Tailscale IPv4 address")
+    func tailscaleUsesTheAddress() {
+        let url = RemoteBaseURL.make(listenOn: .tailscale, magicDNSName: nil, addresses: ["127.0.0.1", "fd7a:115c:a1e0::1", "100.64.0.5"], port: 7780)
+        #expect(url == "http://100.64.0.5:7780")
+    }
+
+    @Test("also Tailscale with only loopback falls back to the loopback URL")
+    func tailscaleFallsBackToLoopback() {
+        let url = RemoteBaseURL.make(listenOn: .tailscale, magicDNSName: nil, addresses: ["127.0.0.1"], port: 7780)
+        #expect(url == "http://127.0.0.1:7780")
+    }
+}

@@ -11,6 +11,21 @@ public enum RemoteListenMode: String, Codable, Sendable, CaseIterable {
     case tailscale
 }
 
+/// The URL a device reaches the server at, for pairing links and the Add Device sheet.
+public enum RemoteBaseURL {
+    /// This Mac only: always loopback. Also Tailscale: the MagicDNS name, else
+    /// the first non-loopback IPv4 address the server listens on, else loopback.
+    public static func make(listenOn: RemoteListenMode, magicDNSName: String?, addresses: [String], port: Int) -> String {
+        let loopback = "http://\(RemoteNetworkAddresses.loopback):\(port)"
+        guard listenOn == .tailscale else { return loopback }
+        if let magicDNSName { return "http://\(magicDNSName):\(port)" }
+        if let ip = addresses.first(where: { $0 != RemoteNetworkAddresses.loopback && !$0.contains(":") }) {
+            return "http://\(ip):\(port)"
+        }
+        return loopback
+    }
+}
+
 /// The mode a running server follows. The server asks `bindAddresses` for the
 /// addresses it should hold, so changing the mode and calling the server's
 /// `reconcile()` applies it without a restart.

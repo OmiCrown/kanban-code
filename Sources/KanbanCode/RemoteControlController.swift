@@ -18,7 +18,11 @@ final class RemoteControlController {
     /// The Mac's Tailscale MagicDNS name, e.g. `mac.tailnet.ts.net`.
     private(set) var magicDNSName: String?
     private(set) var devices: [RemoteDevice] = []
+    /// Which addresses the server listens on, as last applied.
+    private(set) var listenOn: RemoteListenMode = .thisMac
 
+    /// What the running server's `bindAddresses` reads.
+    @ObservationIgnored let listenMode = RemoteListenModeBox(.thisMac)
     @ObservationIgnored let deviceStore = RemoteDeviceStore()
     @ObservationIgnored private var server: RemoteControlServer?
     @ObservationIgnored private var host: MasterRemoteControlHost?
@@ -61,6 +65,16 @@ final class RemoteControlController {
             refreshStatus()
             return
         }
+        listenOn = settings.listenOn
+        listenMode.set(settings.listenOn)
+        // Only the listen mode changed: the running server follows it by
+        // reconciling its listeners, so its port and connections stay.
+        if let server, let old = applied, !settings.needsRestart(from: old) {
+            applied = settings
+            await server.reconcile()
+            refreshStatus()
+            return
+        }
         applied = settings
         stopServer()
         port = settings.port
@@ -72,7 +86,9 @@ final class RemoteControlController {
         let host = MasterRemoteControlHost(engine: engine)
         let store = engine.store
         let server = RemoteControlServer(
-            host: host, devices: deviceStore, port: settings.port, peerServer: peerServer, syncEngine: syncEngine,
+            host: host, devices: deviceStore, port: settings.port,
+            bindAddresses: { [listenMode] in listenMode.bindAddresses() },
+            peerServer: peerServer, syncEngine: syncEngine,
             vault: vault, scrubber: scrubber,
             // The phone using a card this Mac owns keeps the Mac awake for a while.
             activity: { cardId in
@@ -126,11 +142,7 @@ final class RemoteControlController {
 
     /// The URL a device on the tailnet reaches the server at.
     var baseURL: String {
-        if let magicDNSName { return "http://\(magicDNSName):\(port)" }
-        if let ip = addresses.first(where: { $0 != RemoteNetworkAddresses.loopback && !$0.contains(":") }) {
-            return "http://\(ip):\(port)"
-        }
-        return "http://127.0.0.1:\(port)"
+        RemoteBaseURL.make(listenOn: listenOn, magicDNSName: magicDNSName, addresses: addresses, port: port)
     }
 
     func pairLink(token: String) -> String {
