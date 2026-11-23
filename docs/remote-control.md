@@ -21,6 +21,7 @@ agent: kanban remote ... ──┘   :7780, tailnet     └─ ~/.claude transcr
 - A token belongs to one device and has a scope:
   - `full`: everything, including terminals. For a phone.
   - `agent`: read the board and transcripts, create tasks, send prompts, interrupt. No terminal, no raw keys. For another agent such as OpenClaw.
+  - `backlog`: files cards in the backlog and nothing else (see "Backlog scope" below). For an agent in a session that only proposes work.
   - `peer`: what a paired master calls (see "Peer scope" below). No terminal, no vault secrets. For the other master.
   - `terminal`: the terminal socket, plus reading the board to find the card. For showing a peer's card terminals.
 - Tokens are `kc_` followed by 40 base62 characters. `~/.kanban-code/remote/devices.json` keeps only their SHA-256 with the device id, name, scope, `createdAt` and `lastSeenAt`. The server re-reads the file when it changes, so a revoked device is refused on its next request and its open sockets close.
@@ -123,6 +124,18 @@ The Mac app and `kanban-code-server` (an always-on Linux box) are both masters: 
 - A master that runs all the time (`kanban-code-server`, `alwaysOn` in its identity) polls GitHub for the pull requests of every card while it is online, and writes them on cards other masters own; the others do not poll. With no such master online, the master with the lowest machine id polls. Masters send the repository (`host/owner/name`) of their project paths with the links, so the poller needs no checkout of them.
 - The always-on master is the channels home: channels and DMs live in its `~/.kanban-code/channels/`. Another master mirrors that directory (appends by offset, the rest whole, deletions follow; `read-state.json` and `drafts.json` stay local), writes `channels-home.json` for its CLI, and sends every channel write there: its `kanban channel`/`kanban dm` commands and its UI go through `POST /v1/cli`. The first time a Mac pairs with a home that has no channels, it copies its own there. Channel messages for a card another master runs are queued on that master (through the command inbox from the CLI).
 - `kanban subagent` and the other command inbox operations run on the master whose CLI wrote them, the box included.
+
+### Backlog scope
+
+An agent in a session that should only propose work gets a `backlog` token (`kanban remote pair --name <name> --scope backlog`, or Add Device > Backlog). It creates cards in the backlog; the human reviews and launches them. It may call `GET /v1/me`, `GET /v1/machines` (`kanban remote task` asks first) and `POST /v1/tasks`, and nothing else (`RemoteScopePolicy.backlog`, an allow list: a route added later is refused for it). `POST /v1/tasks` adds three checks, each a 403 that names the rule:
+
+- `launch` must be `false`. A body without `launch` counts as a launch and is refused: `the backlog scope only creates backlog cards: send launch=false`.
+- `machine` must be absent, `mac`, or the name of this Mac (case does not count), as `kanban remote task` sends it: `the backlog scope cannot choose another machine`.
+- `project` must not be a repository URL, which would clone it: `the backlog scope cannot name a repository URL as the project`.
+
+`human` is dropped, as for `agent`. `worktree`, `assistant`, `model`, `name` and `images` are stored on the card and do nothing until a human launches it. A refused request creates no card.
+
+Downgrade: a build that does not know the scope reads a `devices.json` holding a `backlog` device as unreadable and refuses every device until it is updated (it fails closed). Revoke the backlog device first if you must go back.
 
 ### Peer scope
 

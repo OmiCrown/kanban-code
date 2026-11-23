@@ -88,7 +88,7 @@ struct RemoteControlSettingsView: View {
                 }
                 ForEach(controller.devices) { device in
                     HStack {
-                        Image(systemName: device.scope == .full ? "iphone" : (device.scope == .agent ? "cpu" : "server.rack"))
+                        Image(systemName: device.scope == .full ? "iphone" : (device.scope == .agent ? "cpu" : (device.scope == .backlog ? "tray" : "server.rack")))
                             .foregroundStyle(.secondary)
                             .frame(width: 18)
                         VStack(alignment: .leading, spacing: 2) {
@@ -253,6 +253,7 @@ struct AddRemoteDeviceSheet: View {
         Picker("Access", selection: $scope) {
             Text("Full: board, prompts and terminals").tag(RemoteScope.full)
             Text("Agent: board, tasks and prompts, no terminals").tag(RemoteScope.agent)
+            Text("Backlog: creates cards in the backlog, never launches").tag(RemoteScope.backlog)
             Text("Peer master: sync, moves and approvals, no terminals").tag(RemoteScope.peer)
         }
         .pickerStyle(.radioGroup)

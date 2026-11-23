@@ -9,7 +9,7 @@ enum RemoteOpenAPI {
   "info": {
     "title": "Kanban Code remote control",
     "version": "1",
-    "description": "Drive Kanban Code on a Mac: read the board and transcripts, start coding tasks, send prompts. Every call except /v1/health and this document needs Authorization: Bearer <token>. WebSocket clients may pass ?token= instead. Scope agent cannot open terminals. Errors are {\"error\": \"...\"}: 401 unknown token, 403 scope, 404 unknown card, 400 bad request, 409 no live session."
+    "description": "Drive Kanban Code on a Mac: read the board and transcripts, start coding tasks, send prompts. Every call except /v1/health and this document needs Authorization: Bearer <token>. WebSocket clients may pass ?token= instead. Scope agent cannot open terminals. Scope backlog can only call GET /v1/me, GET /v1/machines and POST /v1/tasks with launch=false. Errors are {\"error\": \"...\"}: 401 unknown token, 403 scope, 404 unknown card, 400 bad request, 409 no live session."
   },
   "servers": [{"url": "http://127.0.0.1:7780"}],
   "security": [{"bearer": []}],
@@ -187,7 +187,7 @@ enum RemoteOpenAPI {
     "schemas": {
       "Error": {"type": "object", "required": ["error"], "properties": {"error": {"type": "string"}}},
       "Health": {"type": "object", "properties": {"app": {"type": "string"}, "version": {"type": "string"}, "apiVersion": {"type": "integer"}, "hostName": {"type": "string"}, "features": {"type": "array", "items": {"type": "string", "enum": ["images", "queue", "terminalScroll", "machines", "cardActions", "worktrees", "sideChat", "slashCommands", "cardSearch", "fork", "conversations", "files"]}, "description": "what the server supports beyond apiVersion 1; missing on older servers"}}},
-      "Device": {"type": "object", "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "scope": {"type": "string", "enum": ["full", "agent"]}, "createdAt": {"type": "string", "format": "date-time"}, "lastSeenAt": {"type": ["string", "null"], "format": "date-time"}}},
+      "Device": {"type": "object", "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "scope": {"type": "string", "enum": ["full", "agent", "backlog", "peer", "terminal"]}, "createdAt": {"type": "string", "format": "date-time"}, "lastSeenAt": {"type": ["string", "null"], "format": "date-time"}}},
       "PR": {"type": "object", "properties": {"number": {"type": "integer"}, "url": {"type": ["string", "null"]}, "title": {"type": ["string", "null"]}, "status": {"type": ["string", "null"], "description": "open, draft, merged or closed"}}},
       "Terminal": {"type": "object", "properties": {"sessionName": {"type": "string"}, "label": {"type": "string"}, "isPrimary": {"type": "boolean"}}},
       "Card": {

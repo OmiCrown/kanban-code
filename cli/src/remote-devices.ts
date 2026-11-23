@@ -16,9 +16,9 @@ import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { kanbanHome } from "./paths.js";
 
-export type RemoteScope = "full" | "agent" | "peer" | "terminal";
+export type RemoteScope = "full" | "agent" | "backlog" | "peer" | "terminal";
 
-export const REMOTE_SCOPES: readonly RemoteScope[] = ["full", "agent", "peer", "terminal"];
+export const REMOTE_SCOPES: readonly RemoteScope[] = ["full", "agent", "backlog", "peer", "terminal"];
 export const REMOTE_DEFAULT_PORT = 7780;
 
 export interface PairedDevice {
@@ -94,7 +94,7 @@ export function addDevice(
   const trimmed = name.trim();
   if (!trimmed) throw new Error("A device needs a name.");
   if (!REMOTE_SCOPES.includes(scope)) {
-    throw new Error(`Unknown scope '${scope}'. Use full or agent.`);
+    throw new Error(`Unknown scope '${scope}'. Use ${REMOTE_SCOPES.join(", ")}.`);
   }
   const file = readDevicesFile(path);
   const token = generateRemoteToken();

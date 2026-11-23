@@ -1178,7 +1178,7 @@ export function registerRemoteCommands(program: Command, io: RemoteIO = defaultR
     .command("pair")
     .description("On the Mac: add a device and print its token and pairing link")
     .requiredOption("--name <name>", "device name, e.g. iPhone or openclaw")
-    .addOption(new Option("--scope <scope>", "full (phone) or agent").choices([...REMOTE_SCOPES]).default("full"))
+    .addOption(new Option("--scope <scope>", "full (phone), agent, backlog (creates backlog cards only), peer or terminal").choices([...REMOTE_SCOPES]).default("full"))
     .option("--url <url>", `server URL in the link (default: the Mac's Tailscale name, port ${REMOTE_DEFAULT_PORT})`)
     .option("--json", "output as JSON")
     .action(
