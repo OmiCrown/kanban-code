@@ -10,6 +10,8 @@ public struct Project: Identifiable, Codable, Sendable, Equatable {
     public var githubFilter: String? // Per-project gh filter, nil = inherit global default
     public var promptTemplate: String? // Per-project template, nil = inherit global
     public var githubIssuePromptTemplate: String? // Per-project issue template, nil = inherit global
+    /// Cards of this project can be put in Done by hand without a merged PR. nil = off.
+    public var mergeWithoutPR: Bool?
 
     public init(
         path: String,
@@ -18,7 +20,8 @@ public struct Project: Identifiable, Codable, Sendable, Equatable {
         visible: Bool = true,
         githubFilter: String? = nil,
         promptTemplate: String? = nil,
-        githubIssuePromptTemplate: String? = nil
+        githubIssuePromptTemplate: String? = nil,
+        mergeWithoutPR: Bool? = nil
     ) {
         self.path = path
         self.name = name ?? (path as NSString).lastPathComponent
@@ -27,6 +30,7 @@ public struct Project: Identifiable, Codable, Sendable, Equatable {
         self.githubFilter = githubFilter
         self.promptTemplate = promptTemplate
         self.githubIssuePromptTemplate = githubIssuePromptTemplate
+        self.mergeWithoutPR = mergeWithoutPR
     }
 
     /// The effective git repository root (repoRoot if set, otherwise path).

@@ -234,6 +234,12 @@ public final class AppState: @unchecked Sendable {
         return isDisposableMachine(remote.machineName)
     }
 
+    /// True when the card's project lets it be put in Done without a merged PR.
+    /// A worktree card carries the path of the project it was made from.
+    public func mergesWithoutPR(_ link: Link) -> Bool {
+        configuredProjects.first { $0.path == link.projectPath }?.mergeWithoutPR == true
+    }
+
     /// Whether archiving or deleting the last card on `machineName` may
     /// destroy it: only a boxd VM Kanban created for a card
     /// (`BoxdLaunchPlanner.isKanbanMachineName`), never an ssh machine from

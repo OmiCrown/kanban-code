@@ -1690,6 +1690,7 @@ struct ProjectEditSheet: View {
     @State private var repoRoot: String
     @State private var githubFilter: String
     @State private var visible: Bool
+    @State private var mergeWithoutPR: Bool
     @State private var testResultCount: Int?
     @State private var testRunning = false
     let path: String
@@ -1704,6 +1705,7 @@ struct ProjectEditSheet: View {
         self._repoRoot = State(initialValue: project.repoRoot ?? "")
         self._githubFilter = State(initialValue: project.githubFilter ?? "")
         self._visible = State(initialValue: project.visible)
+        self._mergeWithoutPR = State(initialValue: project.mergeWithoutPR == true)
         self.onSave = onSave
         self.onCancel = onCancel
     }
@@ -1723,6 +1725,13 @@ struct ProjectEditSheet: View {
                     TextField("Repo root (if different from path)", text: $repoRoot)
                         .font(.caption)
                     Toggle("Visible in project selector", isOn: $visible)
+                }
+
+                Section("Closing cards") {
+                    Toggle("Merge without PR", isOn: $mergeWithoutPR)
+                    Text("Cards of this project can be moved to Done by hand, without a merged pull request.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
 
                 Section("GitHub Issues") {
@@ -1770,7 +1779,8 @@ struct ProjectEditSheet: View {
                         name: name,
                         repoRoot: repoRoot.isEmpty ? nil : repoRoot,
                         visible: visible,
-                        githubFilter: githubFilter.isEmpty ? nil : githubFilter
+                        githubFilter: githubFilter.isEmpty ? nil : githubFilter,
+                        mergeWithoutPR: mergeWithoutPR ? true : nil
                     )
                     onSave(project)
                 }
