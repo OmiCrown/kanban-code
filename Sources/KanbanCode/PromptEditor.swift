@@ -462,6 +462,23 @@ final class SubmitTextView: NSTextView {
         refreshEditorHeightAfterProgrammaticChange()
     }
 
+    /// A plain-text view enables Paste only for text, so a screenshot on the
+    /// clipboard greyed the item out in the context menu and the Edit menu
+    /// though `paste(_:)` takes the image.
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(NSText.paste(_:)), clipboardHoldsImageWeTake { return true }
+        return super.validateUserInterfaceItem(item)
+    }
+
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(NSText.paste(_:)), clipboardHoldsImageWeTake { return true }
+        return super.validateMenuItem(menuItem)
+    }
+
+    private var clipboardHoldsImageWeTake: Bool {
+        onImagePaste != nil && NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil)
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // Catch Cmd+V explicitly: in SwiftUI sheets the Edit menu may not dispatch paste: to us.
         // AppKit offers key equivalents to every view in the window, so only
