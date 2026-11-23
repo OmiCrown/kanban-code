@@ -388,6 +388,7 @@ final class BatchedTerminalView: LocalProcessTerminalView {
     private var isCommandHeld = false
     private var urlEventMonitor: Any?
     private var linkClickGate = CommandClickGate()
+    private var mouseForwardGate = MouseForwardGate()
 
     /// The link under the pointer of a mouse event, if the pointer is over
     /// this terminal and on one.
@@ -410,7 +411,10 @@ final class BatchedTerminalView: LocalProcessTerminalView {
             let keptPress = self.linkClickGate.pressedLink != nil
                 && (event.type == .leftMouseDragged || event.type == .leftMouseUp)
             // For mouse events, check the mouse is actually over this view
-            if event.type != .flagsChanged, !keptPress {
+            // The same for a press passed on to the program.
+            let forwardedPress = self.mouseForwardGate.dragForwarded
+                && (event.type == .leftMouseDragged || event.type == .leftMouseUp)
+            if event.type != .flagsChanged, !keptPress, !forwardedPress {
                 let point = self.convert(event.locationInWindow, from: nil)
                 guard self.bounds.contains(point) else {
                     // Mouse left this terminal — clear any highlight
@@ -444,6 +448,9 @@ final class BatchedTerminalView: LocalProcessTerminalView {
             return event
 
         case .mouseMoved:
+            // Keeps the pane's answer fresh for the press that follows: the
+            // press cannot wait for a tmux round trip.
+            if let session = kanbanSession { _ = TerminalCache.shared.programOwnsMouse(session: session) }
             if isCommandHeld {
                 let pos = screenPosition(from: event)
                 updateURLHighlight(col: pos.col, screenRow: pos.screenRow)
@@ -453,12 +460,30 @@ final class BatchedTerminalView: LocalProcessTerminalView {
         case .leftMouseDown:
             let command = event.modifierFlags.contains(.command)
             let link = command ? linkURL(at: event) : nil
-            return linkClickGate.mouseDown(command: command, link: link) == .pass ? event : nil
+            if linkClickGate.mouseDown(command: command, link: link) != .pass { return nil }
+            let owns = kanbanSession.map { TerminalCache.shared.programOwnsMouse(session: $0) } ?? false
+            if mouseForwardGate.pressed(
+                programOwnsMouse: owns, shift: event.modifierFlags.contains(.shift), command: command) {
+                // The event stops here, so the window never gives the view
+                // the focus that a click gives it.
+                window?.makeFirstResponder(self)
+                passMouseToProgram { mouseDown(with: event) }
+                return nil
+            }
+            return event
 
         case .leftMouseDragged:
+            if mouseForwardGate.dragForwarded {
+                passMouseToProgram { mouseDragged(with: event) }
+                return nil
+            }
             return linkClickGate.mouseDragged() == .pass ? event : nil
 
         case .leftMouseUp:
+            if mouseForwardGate.released() {
+                passMouseToProgram { mouseUp(with: event) }
+                return nil
+            }
             let link = linkClickGate.pressedLink == nil ? nil : linkURL(at: event)
             switch linkClickGate.mouseUp(link: link) {
             case .pass:
@@ -574,6 +599,17 @@ final class BatchedTerminalView: LocalProcessTerminalView {
 // MARK: - Terminal process cache
 
 extension TerminalView {
+    /// Runs one mouse call of the view with reporting on, so a program that
+    /// asked for the mouse gets it as reports, and puts the view's own
+    /// selection back at once (`allowMouseReporting` off).
+    @MainActor
+    func passMouseToProgram(_ body: () -> Void) {
+        let before = allowMouseReporting
+        allowMouseReporting = true
+        defer { allowMouseReporting = before }
+        body()
+    }
+
     /// Hands one wheel event to the program in the terminal as mouse reports,
     /// although the view keeps its own selection (`allowMouseReporting` off).
     @MainActor
@@ -676,6 +712,18 @@ final class TerminalCache {
             }
         }
         return known?.mode
+    }
+
+    /// Whether the program in the session's pane has asked for the mouse on
+    /// the alternate screen, so clicks and drags are its to handle. tmux has
+    /// `mouse on`, which makes the view see mouse tracking always: only the
+    /// pane's own flags say what the program wants. A session on a machine is
+    /// not asked (tmux there is out of reach of a local command).
+    func programOwnsMouse(session: String) -> Bool {
+        // allowMouseReporting is on for rush already.
+        if RushSessionName.isRush(session) { return false }
+        guard !AppServices.tmux.isRemote(session) else { return false }
+        return paneScrollMode(of: session) == .forwardToProgram
     }
 
     /// Tracks tmux copy-mode state per session for scroll interception.
@@ -955,6 +1003,10 @@ final class TerminalCache {
         terminal.nativeBackgroundColor = NSColor(red: 0.07, green: 0.07, blue: 0.07, alpha: 1.0)
         terminal.nativeForegroundColor = NSColor(red: 0.93, green: 0.93, blue: 0.93, alpha: 1.0)
         terminal.caretColor = .systemGreen
+        // Claude sends no cursor style, and tmux resets the client's with
+        // `CSI SP q` when a pane has none, so this is what a card shows: a
+        // steady bar, as in iTerm with a vertical bar cursor.
+        terminal.terminal.defaultCursorStyle = .steadyBar
 
         // Brighter ANSI palette (SwiftTerm Color uses UInt16 0-65535, multiply 0-255 by 257)
         let c = { (r: UInt16, g: UInt16, b: UInt16) in SwiftTerm.Color(red: r * 257, green: g * 257, blue: b * 257) }

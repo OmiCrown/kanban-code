@@ -3131,6 +3131,14 @@ open class Terminal {
         setCursor(col: 0, row: 0)
     }
 
+    /// The cursor a terminal shows when no program has chosen one: what
+    /// `CSI 0 SP q` and `CSI SP q` go back to. xterm and iTerm read them as
+    /// "the user's own cursor", so a host sets this to its own look. Setting
+    /// it also applies it, as a host does once at creation.
+    public var defaultCursorStyle: CursorStyle = .blinkBlock {
+        didSet { setCursorStyle (defaultCursorStyle) }
+    }
+
     public func setCursorStyle (_ style: CursorStyle)
     {
         if options.cursorStyle != style {
@@ -3141,8 +3149,8 @@ open class Terminal {
     
     //
     // CSI Ps SP q  Set cursor style (DECSCUSR, VT520).
-    //   Ps = 0  -> blinking block.
-    //   Ps = 1  -> blinking block (default).
+    //   Ps = 0  -> the default style (`defaultCursorStyle`, a blinking block unless the host says otherwise).
+    //   Ps = 1  -> blinking block.
     //   Ps = 2  -> steady block.
     //   Ps = 3  -> blinking underline.
     //   Ps = 4  -> steady underline.
@@ -3154,9 +3162,11 @@ open class Terminal {
         if collect.count == 0 || collect != [32] { /* space */
             return
         }
-        let p = max (pars.count == 0 ? 1 : pars [0], 1)
+        let p = pars.count == 0 ? 0 : pars [0]
         switch (p) {
-        case 1, 0:
+        case 0:
+            setCursorStyle (defaultCursorStyle)
+        case 1:
             setCursorStyle (.blinkBlock)
         case 2:
             setCursorStyle (.steadyBlock)
