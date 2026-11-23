@@ -784,6 +784,8 @@ public enum Action: Sendable {
     case launchCard(cardId: String, prompt: String, projectPath: String, worktreeName: String?, runRemotely: Bool, commandOverride: String?)
     case resumeCard(cardId: String)
     case moveCard(cardId: String, to: KanbanCodeColumn)
+    /// Close a card by hand: Done as a manual placement, its terminals stopped.
+    case markCardDone(cardId: String)
     case renameCard(cardId: String, name: String)
     case setCardPinned(cardId: String, isPinned: Bool)
     case setSelfCompactContextThreshold(cardId: String, thresholdTokens: Int?)
@@ -1356,6 +1358,30 @@ public enum Reducer {
             link.updatedAt = .now
             state.links[cardId] = link
             return [.upsertLink(link)]
+
+        case .markCardDone(let cardId):
+            guard var link = state.links[cardId] else { return [] }
+            link.sortOrder = nil
+            link.column = .done
+            link.manualOverrides.column = true
+            link.manuallyArchived = false
+            if link.headless == true { link.headless = false }
+            link.updatedAt = .now
+            // The session is finished: stop it like archive does, so the card
+            // leaves the Live section.
+            var effects: [Effect] = []
+            if let tmux = link.tmuxLink {
+                effects.append(.killTmuxSessions(tmux.allSessionNames))
+                effects.append(.cleanupTerminalCache(sessionNames: tmux.allSessionNames))
+                link.tmuxLink = nil
+            }
+            if link.browserTabs != nil {
+                effects.append(.cleanupBrowserCache(cardId: cardId))
+                link.browserTabs = nil
+            }
+            state.links[cardId] = link
+            effects.insert(.upsertLink(link), at: 0)
+            return effects
 
         case .reorderCard(let cardId, let targetCardId, let above):
             guard let link = state.links[cardId] else { return [] }

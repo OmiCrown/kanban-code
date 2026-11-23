@@ -466,6 +466,44 @@ struct ReducerTests {
         #expect(state.links["card_done"]?.column == .inProgress)
     }
 
+    // MARK: - Mark card done
+
+    @Test("markCardDone puts the card in Done as a manual placement")
+    func markDoneMovesAndPins() {
+        var link = makeLink(id: "card_md1", column: .waiting)
+        link.sortOrder = 3
+        link.manuallyArchived = true
+        var state = stateWith([link])
+
+        let effects = Reducer.reduce(state: &state, action: .markCardDone(cardId: "card_md1"))
+
+        let done = state.links["card_md1"]
+        #expect(done?.column == .done)
+        #expect(done?.manualOverrides.column == true)
+        #expect(done?.manuallyArchived == false)
+        #expect(done?.sortOrder == nil)
+        #expect(effects.contains { if case .upsertLink(let l) = $0 { return l.id == "card_md1" && l.column == .done }; return false })
+        #expect(!effects.contains { if case .killTmuxSessions = $0 { return true }; return false })
+    }
+
+    @Test("markCardDone stops the card's live session and drops its terminal link")
+    func markDoneStopsLiveSession() {
+        let tmux = TmuxLink(sessionName: "proj-md2", extraSessions: ["proj-md2-sh"])
+        var state = stateWith([makeLink(id: "card_md2", column: .waiting, tmuxLink: tmux)])
+
+        let effects = Reducer.reduce(state: &state, action: .markCardDone(cardId: "card_md2"))
+
+        #expect(effects.contains { if case .killTmuxSessions(let names) = $0 { return names == tmux.allSessionNames }; return false })
+        #expect(effects.contains { if case .cleanupTerminalCache(let names) = $0 { return names == tmux.allSessionNames }; return false })
+        #expect(state.links["card_md2"]?.tmuxLink == nil)
+    }
+
+    @Test("markCardDone on an unknown card does nothing")
+    func markDoneUnknownCardIsNoop() {
+        var state = stateWith([])
+        #expect(Reducer.reduce(state: &state, action: .markCardDone(cardId: "card_nope")).isEmpty)
+    }
+
     // MARK: - Delete Card
 
     @Test("deleteCard removes link and returns cleanup effects")
