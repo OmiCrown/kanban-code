@@ -2387,6 +2387,10 @@ struct ContentView: View {
             availableProjects: projectList,
             enabledAssistants: assistantRegistry.available,
             offersMarkDone: store.state.mergesWithoutPR(card.link),
+            offersBranchMerge: BranchMergeEligibility.offered(
+                for: card.link,
+                mergesWithoutPR: store.state.mergesWithoutPR(card.link)
+            ),
             environment: .live(for: card)
         )
         var cmds = catalog.paletteEntries.map { entry in

@@ -15,6 +15,8 @@ struct CardActionCatalogTests {
         var copied: [String] = []
         var unarchived: [String] = []
         var markedDone: [String] = []
+        var merged: [String] = []
+        var finished: [String] = []
     }
 
     private static func actions(_ r: Recorder, archive: Bool = true) -> CardActionsMenuActions {
@@ -55,6 +57,8 @@ struct CardActionCatalogTests {
             destroyMachine: { _ in },
             unarchive: { r.unarchived.append($0) },
             markDone: { r.markedDone.append($0) },
+            mergeIntoMain: { r.merged.append($0) },
+            finishBranch: { r.finished.append($0) },
             requestAddLink: { _ in },
             continueTargets: [("box", "box")],
             isSharedMachine: { _ in false }
@@ -84,7 +88,8 @@ struct CardActionCatalogTests {
         _ card: KanbanCodeCard,
         _ r: Recorder,
         archive: Bool = true,
-        offersMarkDone: Bool = false
+        offersMarkDone: Bool = false,
+        offersBranchMerge: Bool = false
     ) -> CardActionCatalog {
         CardActionCatalog(
             card: card,
@@ -93,6 +98,7 @@ struct CardActionCatalogTests {
             availableProjects: [(name: "Other", path: "/other")],
             enabledAssistants: CodingAssistant.allCases,
             offersMarkDone: offersMarkDone,
+            offersBranchMerge: offersBranchMerge,
             environment: environment(r)
         )
     }
@@ -139,6 +145,45 @@ struct CardActionCatalogTests {
         guard case .perform(let run) = item.kind else { Issue.record("not a plain action"); return }
         run()
         #expect(r.markedDone == ["run"])
+    }
+
+    private static func branchItem(_ catalog: CardActionCatalog, _ id: String) -> CardActionItem? {
+        catalog.sections.joined().first { $0.id == id }
+    }
+
+    @Test("Merge into main and Finish branch are offered for a card with a local worktree")
+    func branchItemsOfferedWithFlag() throws {
+        let r = Recorder()
+        let catalog = Self.catalog(Self.card("br"), r, offersBranchMerge: true)
+        let merge = try #require(Self.branchItem(catalog, "mergeIntoMain"))
+        let finish = try #require(Self.branchItem(catalog, "finishBranch"))
+        #expect(merge.title == "Merge into main…")
+        #expect(merge.icon == "arrow.triangle.merge")
+        #expect(finish.title == "Finish branch…")
+        #expect(finish.icon == "flag.checkered")
+        #expect(catalog.paletteEntries.contains { $0.title == "Merge Branch into main" })
+        #expect(catalog.paletteEntries.contains { $0.title == "Finish Branch" })
+        guard case .perform(let runMerge) = merge.kind, case .perform(let runFinish) = finish.kind else {
+            Issue.record("not plain actions"); return
+        }
+        runMerge()
+        runFinish()
+        #expect(r.merged == ["br"])
+        #expect(r.finished == ["br"])
+    }
+
+    @Test("Merge into main and Finish branch are not offered without the flag")
+    func branchItemsHiddenWithoutFlag() {
+        let catalog = Self.catalog(Self.card("br"), Recorder())
+        #expect(Self.branchItem(catalog, "mergeIntoMain") == nil)
+        #expect(Self.branchItem(catalog, "finishBranch") == nil)
+    }
+
+    @Test("Merge into main and Finish branch are not offered for an archived card")
+    func branchItemsHiddenForArchivedCard() {
+        let catalog = Self.catalog(Self.card("x", column: .allSessions, archived: true), Recorder(), offersBranchMerge: true)
+        #expect(Self.branchItem(catalog, "mergeIntoMain") == nil)
+        #expect(Self.branchItem(catalog, "finishBranch") == nil)
     }
 
     @Test("the palette reaches every action of CardActionsMenuActions")

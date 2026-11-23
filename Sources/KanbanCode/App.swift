@@ -820,6 +820,10 @@ extension Notification.Name {
     static let chatComposerRefocus = Notification.Name("chatComposerRefocus")
     static let kanbanCodeAddLink = Notification.Name("kanbanCodeAddLink")
     static let kanbanCodeMarkDone = Notification.Name("kanbanCodeMarkDone")
+    /// `userInfo["cardId"]` names the card whose worktree branch is merged into main.
+    static let kanbanCodeMergeIntoMain = Notification.Name("kanbanCodeMergeIntoMain")
+    /// `userInfo["cardId"]` names the card whose branch is finished.
+    static let kanbanCodeFinishBranch = Notification.Name("kanbanCodeFinishBranch")
     static let kanbanCodeOpenProject = Notification.Name("kanbanCodeOpenProject")
     static let kanbanCodeCLICommand = Notification.Name("kanbanCodeCLICommand")
     static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")

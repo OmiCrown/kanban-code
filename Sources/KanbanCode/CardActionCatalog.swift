@@ -46,6 +46,10 @@ struct CardActionEnvironment {
     var unarchive: (String) -> Void
     /// Close the card by hand (Mark as Done); the app confirms first when a session is live.
     var markDone: (String) -> Void = { _ in }
+    /// Open the merge dialog for the card's worktree branch.
+    var mergeIntoMain: (String) -> Void = { _ in }
+    /// Open the finish dialog (merge state, worktree removal, rebuild).
+    var finishBranch: (String) -> Void = { _ in }
     var requestAddLink: (String) -> Void
     /// Where the card can continue: this Mac, the peer masters, the ssh
     /// machines this Mac drives.
@@ -68,6 +72,20 @@ struct CardActionEnvironment {
             markDone: { cardId in
                 NotificationCenter.default.post(
                     name: .kanbanCodeMarkDone,
+                    object: nil,
+                    userInfo: ["cardId": cardId]
+                )
+            },
+            mergeIntoMain: { cardId in
+                NotificationCenter.default.post(
+                    name: .kanbanCodeMergeIntoMain,
+                    object: nil,
+                    userInfo: ["cardId": cardId]
+                )
+            },
+            finishBranch: { cardId in
+                NotificationCenter.default.post(
+                    name: .kanbanCodeFinishBranch,
                     object: nil,
                     userInfo: ["cardId": cardId]
                 )
@@ -115,6 +133,8 @@ struct CardActionCatalog {
     var enabledAssistants: [CodingAssistant] = []
     /// The card's project merges without a PR, so it can be closed by hand.
     var offersMarkDone = false
+    /// The card has a local worktree in a project that merges without a PR.
+    var offersBranchMerge = false
     let environment: CardActionEnvironment
 
     var sections: [[CardActionItem]] {
@@ -125,6 +145,7 @@ struct CardActionCatalog {
             linkItems,
             discoverItems,
             cleanupItems,
+            mergeItems,
             continueOnItems,
             moveToProjectItems,
             migrateItems,
@@ -441,6 +462,23 @@ struct CardActionCatalog {
         return [CardActionItem(
             id: "migrate", title: "Migrate to Assistant", icon: "arrow.triangle.swap", kind: .submenu(children)
         )]
+    }
+
+    private var mergeItems: [CardActionItem] {
+        guard offersBranchMerge, !card.link.manuallyArchived else { return [] }
+        let cardId = card.id
+        return [
+            CardActionItem(
+                id: "mergeIntoMain", title: "Merge into main…", icon: "arrow.triangle.merge",
+                paletteTitle: "Merge Branch into main",
+                kind: .perform { environment.mergeIntoMain(cardId) }
+            ),
+            CardActionItem(
+                id: "finishBranch", title: "Finish branch…", icon: "flag.checkered",
+                paletteTitle: "Finish Branch",
+                kind: .perform { environment.finishBranch(cardId) }
+            ),
+        ]
     }
 
     private var machineItems: [CardActionItem] {

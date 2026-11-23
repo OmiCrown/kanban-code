@@ -111,6 +111,10 @@ struct CardActionsMenu: View {
             availableProjects: availableProjects,
             enabledAssistants: enabledAssistants,
             offersMarkDone: AppComposition.shared.store.state.mergesWithoutPR(card.link),
+            offersBranchMerge: BranchMergeEligibility.offered(
+                for: card.link,
+                mergesWithoutPR: AppComposition.shared.store.state.mergesWithoutPR(card.link)
+            ),
             environment: .live(for: card)
         )
         let sections = catalog.sections
