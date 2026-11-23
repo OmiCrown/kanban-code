@@ -269,7 +269,10 @@ final class RemoteServerFixture: Sendable {
     let fullDevice: RemoteDevice
     let session: URLSession
 
-    init(host: FakeRemoteHost = FakeRemoteHost(), vault: VaultService? = nil) async throws {
+    init(
+        host: FakeRemoteHost = FakeRemoteHost(), vault: VaultService? = nil,
+        bindAddresses: @escaping @Sendable () -> [String] = { [RemoteNetworkAddresses.loopback] }
+    ) async throws {
         dir = (NSTemporaryDirectory() as NSString).appendingPathComponent("remote-control-\(UUID().uuidString)")
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         self.host = host
@@ -280,7 +283,7 @@ final class RemoteServerFixture: Sendable {
         fullDevice = full.0
         agentToken = agent.token
         server = RemoteControlServer(
-            host: host, devices: devices, port: 0, bindAddresses: { [RemoteNetworkAddresses.loopback] },
+            host: host, devices: devices, port: 0, bindAddresses: bindAddresses,
             options: .init(pingInterval: 0.4, pushInterval: 0.2, watchInterval: 0.1, appVersion: "test", hostName: "test-mac"),
             vault: vault
         )

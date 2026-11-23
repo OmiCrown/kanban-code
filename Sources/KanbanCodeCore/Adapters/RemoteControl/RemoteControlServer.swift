@@ -71,6 +71,8 @@ public final class RemoteControlServer: Sendable {
         var port: Int
         var listeners: [String: any RemoteListener] = [:]
         var connections: [ObjectIdentifier: RemoteConnection] = [:]
+        /// The listener address each connection came in through.
+        var origin: [ObjectIdentifier: String] = [:]
         var sockets: [UUID: SocketEntry] = [:]
         #if canImport(Network)
         var pathMonitor: NWPathMonitor?
@@ -202,6 +204,7 @@ public final class RemoteControlServer: Sendable {
             defer {
                 s.listeners = [:]
                 s.connections = [:]
+                s.origin = [:]
                 s.sockets = [:]
                 s.watchTask = nil
             }
@@ -231,6 +234,12 @@ public final class RemoteControlServer: Sendable {
         }
     }
 
+    /// Makes the listeners match the addresses `bindAddresses` returns now.
+    /// Call it after the answer of `bindAddresses` changed (a new listen mode).
+    public func reconcile() async {
+        await reconcileAddresses()
+    }
+
     private func reconcileAddresses() async {
         let (running, port, bound) = state.withLock { ($0.running, $0.port, Set($0.listeners.keys)) }
         guard running else { return }
@@ -238,7 +247,13 @@ public final class RemoteControlServer: Sendable {
         for address in bound.subtracting(wanted) where address != RemoteNetworkAddresses.loopback {
             let listener = state.withLock { $0.listeners.removeValue(forKey: address) }
             listener?.cancel()
-            KanbanCodeLog.info("remote", "stopped listening on \(address)")
+            // Cancelling a listener leaves the connections it accepted open: close
+            // them, or a client keeps the access of an address the server gave up.
+            let accepted = state.withLock { s in
+                s.origin.filter { $0.value == address }.compactMap { s.connections[$0.key] }
+            }
+            accepted.forEach { $0.cancel() }
+            KanbanCodeLog.info("remote", "stopped listening on \(address), closed \(accepted.count) connection(s)")
         }
         for address in wanted.subtracting(bound) {
             do {
@@ -261,17 +276,18 @@ public final class RemoteControlServer: Sendable {
 
     private func makeListener(address: String, port: Int) async throws -> any RemoteListener {
         try await RemoteTransport.listen(address: address, port: port, queue: queue) { [weak self] stream in
-            self?.accept(stream)
+            self?.accept(stream, via: address)
         }
     }
 
     // MARK: - Connections
 
-    private func accept(_ stream: any RemoteByteStream) {
+    private func accept(_ stream: any RemoteByteStream, via address: String) {
         let conn = RemoteConnection(stream)
         let accepted = state.withLock { s -> Bool in
             guard s.running else { return false }
             s.connections[ObjectIdentifier(conn)] = conn
+            s.origin[ObjectIdentifier(conn)] = address
             return true
         }
         guard accepted else {
@@ -281,7 +297,10 @@ public final class RemoteControlServer: Sendable {
         conn.start()
         Task { [weak self] in
             await self?.serve(conn)
-            _ = self?.state.withLock { $0.connections.removeValue(forKey: ObjectIdentifier(conn)) }
+            _ = self?.state.withLock { s in
+                s.origin.removeValue(forKey: ObjectIdentifier(conn))
+                return s.connections.removeValue(forKey: ObjectIdentifier(conn))
+            }
         }
     }
 
