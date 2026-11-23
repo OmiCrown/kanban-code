@@ -385,6 +385,7 @@ enum FinishPlan {
     ) -> String? {
         WorktreeRemovalGuard.blockReason(
             branchMerged: state.branchMerged,
+            dirtyPaths: state.dirtyPaths,
             worktreePath: worktreePath,
             appBundlePath: appBundlePath,
             hasLiveSession: hasLiveSession && !closeCard,
@@ -659,7 +660,13 @@ struct FinishBranchSheet: View {
     }
 
     private func startFinish() {
-        guard case .loaded(let loaded) = phase else { return }
+        guard running == nil, case .loaded(let loaded) = phase else { return }
+        // A ticked Remove that is blocked stops the whole run: closing the card first
+        // would leave it closed with the worktree still there.
+        if removeWorktree, !done.contains(.removeWorktree), let reason = removalReason(loaded) {
+            removeWorktree = false
+            return fail(reason)
+        }
         let steps = pendingSteps
         guard !steps.isEmpty else { return }
         failure = nil
@@ -678,6 +685,33 @@ struct FinishBranchSheet: View {
         // what is checked against tmux afterwards.
         let sessions = link?.tmuxLink?.allSessionNames ?? []
         var closedHere = false
+
+        // Before the first step, on fresh state: when Remove is part of the run and cannot
+        // go ahead, nothing runs, so Close card does not leave the card closed and the
+        // worktree in place.
+        if steps.contains(.removeWorktree) {
+            let fresh: FinishState
+            do {
+                fresh = try await BranchFinish().state(worktreePath: target.worktreePath, branch: target.branch)
+            } catch {
+                return fail(error.localizedDescription)
+            }
+            if let link = store.state.links[target.cardId],
+               let reason = FinishPlan.removalBlockReason(
+                state: fresh,
+                worktreePath: target.worktreePath,
+                appBundlePath: Bundle.main.bundlePath,
+                hasLiveSession: link.tmuxLink != nil,
+                closeCard: steps.contains(.closeCard),
+                otherActiveCardsOnBranch: FinishPlan.otherActiveCardsOnBranch(
+                    counts: store.state.activeWorktreeBranchCounts,
+                    branch: target.branch,
+                    cardIsActive: !link.manuallyArchived)) {
+                phase = .loaded(Loaded(state: fresh, hasAppTarget: loaded.hasAppTarget))
+                removeWorktree = false
+                return fail(reason + " Nothing was run.")
+            }
+        }
 
         for step in steps {
             running = step

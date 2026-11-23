@@ -9,6 +9,7 @@ public enum BranchMergeEligibility {
         // A card on a remote or boxd machine has its checkout there, not here.
         guard !link.isRemote, link.remote == nil else { return false }
         guard let worktree = link.worktreePath, !worktree.isEmpty else { return false }
+        guard let branch = link.worktreeLink?.branch, !branch.isEmpty else { return false }
         guard let project = link.projectPath, !project.isEmpty else { return true }
         return (worktree as NSString).standardizingPath != (project as NSString).standardizingPath
     }

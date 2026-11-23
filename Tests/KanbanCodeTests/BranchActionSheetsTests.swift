@@ -193,8 +193,8 @@ struct BranchActionSheetsTests {
 @Suite("Finish branch sheet text and plan")
 struct FinishSheetTests {
 
-    private static func state(merged: Bool = true, ignored: [IgnoredEntry] = []) -> FinishState {
-        FinishState(mainCheckout: "/repo", branchMerged: merged, ignored: ignored)
+    private static func state(merged: Bool = true, dirty: [String] = [], ignored: [IgnoredEntry] = []) -> FinishState {
+        FinishState(mainCheckout: "/repo", branchMerged: merged, dirtyPaths: dirty, ignored: ignored)
     }
 
     // MARK: - Remove line
@@ -302,16 +302,23 @@ struct FinishSheetTests {
     // MARK: - Removal block reason
 
     private static func reason(
-        merged: Bool = true, live: Bool = false, close: Bool = false, others: Int = 0, bundle: String = "/Applications/KanbanCode.app"
+        merged: Bool = true, dirty: [String] = [], live: Bool = false, close: Bool = false, others: Int = 0,
+        bundle: String = "/Applications/KanbanCode.app"
     ) -> String? {
         FinishPlan.removalBlockReason(
-            state: state(merged: merged), worktreePath: "/repo.worktrees/x", appBundlePath: bundle,
+            state: state(merged: merged, dirty: dirty), worktreePath: "/repo.worktrees/x", appBundlePath: bundle,
             hasLiveSession: live, closeCard: close, otherActiveCardsOnBranch: others)
     }
 
     @Test("a merged branch with nothing running can be removed")
     func removable() {
         #expect(Self.reason() == nil)
+    }
+
+    @Test("leftover files in the worktree block removal even when the card is closed first")
+    func dirtyBlocks() {
+        #expect(Self.reason(dirty: ["docs/a.md"])?.contains("docs/a.md") == true)
+        #expect(Self.reason(dirty: ["docs/a.md"], close: true)?.contains("docs/a.md") == true)
     }
 
     @Test("a live session blocks removal unless the card is closed first")

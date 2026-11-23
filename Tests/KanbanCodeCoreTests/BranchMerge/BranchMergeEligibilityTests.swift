@@ -8,13 +8,14 @@ struct BranchMergeEligibilityTests {
     private static func link(
         project: String? = "/repo",
         worktree: String? = "/repo.worktrees/a",
+        branch: String? = "feat/a",
         isRemote: Bool = false,
         remote: RemoteLink? = nil
     ) -> Link {
         Link(
             id: "card-a",
             projectPath: project,
-            worktreeLink: worktree.map { WorktreeLink(path: $0, branch: "feat/a") },
+            worktreeLink: worktree.map { WorktreeLink(path: $0, branch: branch) },
             isRemote: isRemote,
             remote: remote
         )
@@ -31,6 +32,11 @@ struct BranchMergeEligibilityTests {
     @Test func hiddenWithoutWorktree() {
         #expect(!BranchMergeEligibility.offered(for: Self.link(worktree: nil), mergesWithoutPR: true))
         #expect(!BranchMergeEligibility.offered(for: Self.link(worktree: ""), mergesWithoutPR: true))
+    }
+
+    @Test func hiddenWithoutBranch() {
+        #expect(!BranchMergeEligibility.offered(for: Self.link(branch: nil), mergesWithoutPR: true))
+        #expect(!BranchMergeEligibility.offered(for: Self.link(branch: ""), mergesWithoutPR: true))
     }
 
     @Test func hiddenWhenWorktreeIsProjectPath() {

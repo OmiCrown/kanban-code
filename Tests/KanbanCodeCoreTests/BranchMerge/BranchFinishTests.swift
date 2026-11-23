@@ -116,14 +116,122 @@ struct BranchFinishTests {
         #expect(state.ignored.isEmpty)
     }
 
+    // MARK: - state verifies the worktree
+
+    @Test func stateThrowsWhenWorktreeIsNotRegistered() async throws {
+        let fx = try await GitFixture.make()
+        defer { fx.cleanup() }
+        _ = try await fx.addWorktree("a", branch: "feat-a", sibling: true)
+        // A folder inside the main checkout: git answers from there, but it is no worktree record.
+        let stray = fx.repo + "/stray"
+        try FileManager.default.createDirectory(atPath: stray, withIntermediateDirectories: true)
+
+        await #expect(throws: BranchMergeError.self) {
+            _ = try await BranchFinish().state(worktreePath: stray, branch: "feat-a")
+        }
+    }
+
+    @Test func stateThrowsWhenPathIsTheMainCheckout() async throws {
+        let fx = try await GitFixture.make()
+        defer { fx.cleanup() }
+        _ = try await fx.addWorktree("a", branch: "feat-a", sibling: true)
+
+        await #expect(throws: BranchMergeError.self) {
+            _ = try await BranchFinish().state(worktreePath: fx.repo, branch: "feat-a")
+        }
+    }
+
+    @Test func stateThrowsWhenWorktreeIsOnAnotherBranch() async throws {
+        let fx = try await GitFixture.make()
+        defer { fx.cleanup() }
+        let wt = try await fx.addWorktree("a", branch: "feat-a", sibling: true)
+        try await fx.git(["checkout", "-q", "-b", "other"], in: wt)
+
+        await #expect(throws: BranchMergeError.self) {
+            _ = try await BranchFinish().state(worktreePath: wt, branch: "feat-a")
+        }
+    }
+
+    @Test func stateThrowsWhenWorktreeHeadIsDetached() async throws {
+        let fx = try await GitFixture.make()
+        defer { fx.cleanup() }
+        let wt = try await fx.addWorktree("a", branch: "feat-a", sibling: true)
+        try await fx.git(["checkout", "-q", "--detach"], in: wt)
+
+        await #expect(throws: BranchMergeError.self) {
+            _ = try await BranchFinish().state(worktreePath: wt, branch: "feat-a")
+        }
+    }
+
+    @Test func stateAcceptsWorktreeSpelledThroughASymlink() async throws {
+        let fx = try await GitFixture.make()
+        defer { fx.cleanup() }
+        let wt = try await fx.addWorktree("a", branch: "feat-a", sibling: true)
+        let alias = fx.root + "/alias"
+        try FileManager.default.createSymbolicLink(atPath: alias, withDestinationPath: wt)
+
+        let state = try await BranchFinish().state(worktreePath: alias, branch: "feat-a")
+
+        #expect(state.mainCheckout == fx.repo)
+    }
+
+    @Test func aTagNamedLikeMainDoesNotMakeABranchLookMerged() async throws {
+        let fx = try await GitFixture.make()
+        defer { fx.cleanup() }
+        let wt = try await fx.addWorktree("a", branch: "feat-a", sibling: true)
+        try await fx.commit(in: wt, file: "one.txt", content: "1")
+        // `main` the tag points at the unmerged tip; `main` the branch does not have it.
+        try await fx.git(["tag", "main", "feat-a"], in: fx.repo)
+
+        let state = try await BranchFinish().state(worktreePath: wt, branch: "feat-a")
+
+        #expect(state.branchMerged == false)
+    }
+
+    // MARK: - dirty paths
+
+    @Test func stateReportsUntrackedDocAndModifiedTrackedFile() async throws {
+        let fx = try await GitFixture.make()
+        defer { fx.cleanup() }
+        let wt = try await fx.addWorktree("a", branch: "feat-a", sibling: true)
+        try fx.write("docs/plan.md", in: wt, "plan")
+        try fx.write("README.md", in: wt, "changed\n")
+
+        let state = try await BranchFinish().state(worktreePath: wt, branch: "feat-a")
+
+        #expect(Set(state.dirtyPaths) == ["docs/", "README.md"])
+    }
+
+    @Test func ignoredFoldersAreNotDirty() async throws {
+        let fx = try await GitFixture.make()
+        defer { fx.cleanup() }
+        let wt = try await fx.addWorktree("a", branch: "feat-a", sibling: true)
+        try fx.write(".superpowers/one.md", in: wt, "1")
+
+        let state = try await BranchFinish().state(worktreePath: wt, branch: "feat-a")
+
+        #expect(state.dirtyPaths.isEmpty)
+        #expect(state.ignored == [IgnoredEntry(path: ".superpowers/", fileCount: 1)])
+    }
+
+    @Test func cleanWorktreeHasNoDirtyPaths() async throws {
+        let fx = try await GitFixture.make()
+        defer { fx.cleanup() }
+        let wt = try await fx.addWorktree("a", branch: "feat-a", sibling: true)
+
+        let state = try await BranchFinish().state(worktreePath: wt, branch: "feat-a")
+
+        #expect(state.dirtyPaths.isEmpty)
+    }
+
     // MARK: - guard
 
     private func reason(
-        merged: Bool = true, worktree: String = "/x/wt", app: String = "/Applications/Kanban Code.app",
+        merged: Bool = true, dirty: [String] = [], worktree: String = "/x/wt", app: String = "/Applications/Kanban Code.app",
         session: Bool = false, others: Int = 0
     ) -> String? {
         WorktreeRemovalGuard.blockReason(
-            branchMerged: merged, worktreePath: worktree, appBundlePath: app,
+            branchMerged: merged, dirtyPaths: dirty, worktreePath: worktree, appBundlePath: app,
             hasLiveSession: session, otherActiveCardsOnBranch: others)
     }
 
@@ -160,6 +268,25 @@ struct BranchFinishTests {
         #expect(reason(worktree: base + "/alias", app: base + "/wt/app")?.contains("running from this worktree") == true)
     }
 
+    @Test func guardBlocksWhenWorktreeHasLeftoverFiles() {
+        let text = reason(dirty: ["docs/a.md", "src/b.swift"])
+        #expect(text?.contains("docs/a.md") == true)
+        #expect(text?.contains("src/b.swift") == true)
+        #expect(text?.contains("copies in main") == true)
+        #expect(text?.contains("--force") == false)
+        #expect(reason(dirty: [], session: false) == nil)
+    }
+
+    @Test func guardNamesAtMostFiveDirtyPaths() {
+        let six = (1...6).map { "docs/f\($0).md" }
+        let text = reason(dirty: six)
+        #expect(text?.contains("docs/f5.md") == true)
+        #expect(text?.contains("docs/f6.md") == false)
+        #expect(text?.contains("and 1 more") == true)
+        #expect(reason(dirty: Array(six.prefix(5)))?.contains("more") == false)
+        #expect(reason(dirty: (1...9).map { "f\($0)" })?.contains("and 4 more") == true)
+    }
+
     @Test func guardBlocksWhenSessionLive() {
         #expect(reason(session: true)?.contains("tmux session") == true)
     }
@@ -170,7 +297,8 @@ struct BranchFinishTests {
     }
 
     @Test func guardCheckOrder() {
-        #expect(reason(merged: false, app: "/x/wt/a.app", session: true, others: 2)?.contains("not merged") == true)
+        #expect(reason(merged: false, dirty: ["a"], app: "/x/wt/a.app", session: true, others: 2)?.contains("not merged") == true)
+        #expect(reason(dirty: ["a"], app: "/x/wt/a.app", session: true, others: 2)?.contains("copies in main") == true)
         #expect(reason(app: "/x/wt/a.app", session: true, others: 2)?.contains("running from") == true)
         #expect(reason(session: true, others: 2)?.contains("tmux") == true)
     }

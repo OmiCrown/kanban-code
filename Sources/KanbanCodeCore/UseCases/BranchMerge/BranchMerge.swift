@@ -20,22 +20,7 @@ public struct BranchMerge: Sendable {
         guard list.succeeded else {
             throw BranchMergeError.refused("Cannot list worktrees: \(GitRepoSync.firstLine(list))")
         }
-        let records = Self.parseWorktrees(list.stdout)
-        // The first record of `git worktree list` is always the main checkout.
-        guard let main = records.first else {
-            throw BranchMergeError.refused("git reported no worktrees for \(worktreePath).")
-        }
-        let wanted = Self.canonical(worktreePath)
-        guard let record = records.first(where: { Self.canonical($0.path) == wanted }) else {
-            throw BranchMergeError.refused("\(worktreePath) is not a worktree of this repository.")
-        }
-        guard record.path != main.path else {
-            throw BranchMergeError.refused("\(worktreePath) is the main checkout, not a task worktree.")
-        }
-        guard record.branch == "refs/heads/\(branch)" else {
-            let actual = record.branch.map { $0.replacingOccurrences(of: "refs/heads/", with: "") } ?? "a detached HEAD"
-            throw BranchMergeError.refused("The worktree is on \(actual), not on \(branch).")
-        }
+        let main = try Self.verifiedWorktree(in: Self.parseWorktrees(list.stdout), path: worktreePath, branch: branch)
 
         let mainCheckout = main.path
         let head = await run(["symbolic-ref", "--short", "-q", "HEAD"], mainCheckout)
@@ -61,6 +46,27 @@ public struct BranchMerge: Sendable {
             worktreeDirtyPaths: worktreeDirty,
             docs: docs
         )
+    }
+
+    /// The main checkout (the first record of `git worktree list`), after checking that
+    /// `path` is another registered worktree and is on `refs/heads/<branch>`. Throws
+    /// `BranchMergeError.refused` otherwise.
+    static func verifiedWorktree(in records: [WorktreeRecord], path: String, branch: String) throws -> WorktreeRecord {
+        guard let main = records.first else {
+            throw BranchMergeError.refused("git reported no worktrees for \(path).")
+        }
+        let wanted = canonical(path)
+        guard let record = records.first(where: { canonical($0.path) == wanted }) else {
+            throw BranchMergeError.refused("\(path) is not a worktree of this repository.")
+        }
+        guard record.path != main.path else {
+            throw BranchMergeError.refused("\(path) is the main checkout, not a task worktree.")
+        }
+        guard record.branch == "refs/heads/\(branch)" else {
+            let actual = record.branch.map { $0.replacingOccurrences(of: "refs/heads/", with: "") } ?? "a detached HEAD"
+            throw BranchMergeError.refused("The worktree is on \(actual), not on \(branch).")
+        }
+        return main
     }
 
     // MARK: - Merge

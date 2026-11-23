@@ -17,12 +17,16 @@ public struct FinishState: Sendable, Equatable {
     public var mainCheckout: String
     /// The branch is contained in the branch checked out in the main checkout.
     public var branchMerged: Bool
+    /// Modified, staged and untracked paths in the worktree (ignored ones are in `ignored`).
+    /// `git worktree remove` without `--force` refuses while any exist.
+    public var dirtyPaths: [String]
     /// Ignored files and folders that removing the worktree deletes, sorted by path.
     public var ignored: [IgnoredEntry]
 
-    public init(mainCheckout: String, branchMerged: Bool, ignored: [IgnoredEntry]) {
+    public init(mainCheckout: String, branchMerged: Bool, dirtyPaths: [String], ignored: [IgnoredEntry]) {
         self.mainCheckout = mainCheckout
         self.branchMerged = branchMerged
+        self.dirtyPaths = dirtyPaths
         self.ignored = ignored
     }
 }
@@ -33,6 +37,7 @@ public enum WorktreeRemovalGuard {
     /// `otherActiveCardsOnBranch` counts the cards other than the one being finished.
     public static func blockReason(
         branchMerged: Bool,
+        dirtyPaths: [String],
         worktreePath: String,
         appBundlePath: String,
         hasLiveSession: Bool,
@@ -40,6 +45,11 @@ public enum WorktreeRemovalGuard {
     ) -> String? {
         if !branchMerged {
             return "The branch is not merged into main yet, so removing the worktree would lose its commits."
+        }
+        if !dirtyPaths.isEmpty {
+            let shown = dirtyPaths.prefix(5).joined(separator: ", ")
+            let rest = dirtyPaths.count > 5 ? " and \(dirtyPaths.count - 5) more" : ""
+            return "The worktree still has uncommitted files: \(shown)\(rest). Docs carried by Merge with docs are copies in main, so the ones left here must be deleted or committed by hand first."
         }
         if isInside(appBundlePath, of: worktreePath) {
             return "Kanban Code is running from this worktree (\(appBundlePath)); removing it would delete the running app."
@@ -93,19 +103,21 @@ public struct BranchFinish: Sendable {
         guard list.succeeded else {
             throw BranchMergeError.refused("Cannot list worktrees: \(GitRepoSync.firstLine(list))")
         }
-        // The first record of `git worktree list` is always the main checkout.
-        guard let main = BranchMerge.parseWorktrees(list.stdout).first else {
-            throw BranchMergeError.refused("git reported no worktrees for \(worktreePath).")
-        }
+        // Same checks as the merge preflight: a stale card branch, a switched branch or a
+        // detached HEAD must not make the worktree look merged and removable.
+        let main = try BranchMerge.verifiedWorktree(
+            in: BranchMerge.parseWorktrees(list.stdout), path: worktreePath, branch: branch)
         let mainCheckout = main.path
-        let head = await run(["symbolic-ref", "--short", "-q", "HEAD"], mainCheckout)
-        let mainBranch = head.succeeded ? head.stdout.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        // The full ref, so a tag named `main` cannot turn the short name into `heads/main`.
+        let head = await run(["symbolic-ref", "-q", "HEAD"], mainCheckout)
+        let headRef = head.succeeded ? head.stdout.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        let mainBranch = headRef.hasPrefix("refs/heads/") ? String(headRef.dropFirst("refs/heads/".count)) : ""
         guard mainBranch == "main" || mainBranch == "master" else {
             let described = mainBranch.isEmpty ? "a detached HEAD" : "'\(mainBranch)'"
             throw BranchMergeError.refused("The main checkout is on \(described), not main or master; cannot tell whether \(branch) is merged.")
         }
 
-        let ancestor = await run(["merge-base", "--is-ancestor", "refs/heads/\(branch)", mainBranch], mainCheckout)
+        let ancestor = await run(["merge-base", "--is-ancestor", "refs/heads/\(branch)", "refs/heads/\(mainBranch)"], mainCheckout)
         let merged: Bool
         switch ancestor.exitCode {
         case 0: merged = true
@@ -118,10 +130,18 @@ public struct BranchFinish: Sendable {
         guard status.succeeded else {
             throw BranchMergeError.refused("Cannot read the git status of \(worktreePath): \(GitRepoSync.firstLine(status))")
         }
+        let dirty = Self.dirtyPaths(status.stdout)
         let ignored = Self.ignoredPaths(status.stdout)
             .map { IgnoredEntry(path: $0, fileCount: Self.countFiles(at: worktreePath + "/" + $0)) }
             .sorted { $0.path < $1.path }
-        return FinishState(mainCheckout: mainCheckout, branchMerged: merged, ignored: ignored)
+        return FinishState(mainCheckout: mainCheckout, branchMerged: merged, dirtyPaths: dirty, ignored: ignored)
+    }
+
+    /// The modified, staged and untracked entries of `status --ignored --porcelain=v1 -z`:
+    /// everything except the `!!` ones.
+    static func dirtyPaths(_ output: String) -> [String] {
+        let entries = output.split(separator: "\u{0}", omittingEmptySubsequences: true).filter { !$0.hasPrefix("!! ") }
+        return BranchMerge.parseStatus(entries.joined(separator: "\u{0}"))
     }
 
     /// The `!!` entries of `status --ignored --porcelain=v1 -z`. A rename or copy is
