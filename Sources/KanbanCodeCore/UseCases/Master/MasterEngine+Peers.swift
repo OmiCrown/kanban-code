@@ -214,6 +214,13 @@ extension MasterEngine {
                 if let card = try? await client.card(id: cardId) {
                     store.dispatch(.peerCardRead(cardId: cardId, state: PeerTranscriptMirror.state(of: card)))
                 }
+            } catch let error as RemoteClientError where isStart && error.isTimeout {
+                // A slow owner still runs the start it took: its card says
+                // how the start ends, not this request's deadline.
+                KanbanCodeLog.info("peers", "card \(cardId): \(owner) is slow to answer the start, following its card")
+                if let failure = await followStart(cardId: cardId, client: client) {
+                    report("Could not \(what) on \(owner): \(failure)")
+                }
             } catch {
                 // The owner's queue as it is now, so the bar does not keep
                 // offering a prompt the owner no longer holds.
@@ -231,6 +238,26 @@ extension MasterEngine {
                 store.dispatch(.setError(message))
             }
         }
+    }
+
+    /// Reads the owner's card until its start ends, mirroring each read.
+    /// Returns why the start failed, or nil when it runs or the owner says
+    /// nothing within `timeout`.
+    func followStart(cardId: String, client: RemoteClient, timeout: TimeInterval = 180) async -> String? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let card = try? await client.card(id: cardId) {
+                store.dispatch(.peerCardRead(cardId: cardId, state: PeerTranscriptMirror.state(of: card)))
+                switch card.sessionStatus?.kind {
+                case .failed: return card.sessionStatus?.text ?? "the start failed"
+                case .starting, .moving: break
+                default: if card.isLive { return nil }
+                }
+            }
+            try? await Task.sleep(for: .seconds(3))
+        }
+        KanbanCodeLog.warn("peers", "card \(cardId): owner gave no outcome of the start in \(Int(timeout))s")
+        return nil
     }
 
     /// Stops the running turn of a card, here or on its owner.
@@ -350,6 +377,9 @@ extension MasterEngine {
                 localTranscript: link.sessionLink?.sessionPath,
                 remoteCwd: remote.remoteCwd)
         }
+        if let transcript = link.sessionLink?.sessionPath, !FileManager.default.fileExists(atPath: transcript) {
+            throw MasterPeerError.failed("its conversation is gone from this machine, so there is nothing to continue on \(peerName(machineId))")
+        }
         // The conversation runs in one place only.
         for name in link.tmuxLink?.allSessionNames ?? [] {
             try? await tmux.killSession(name: name)
@@ -386,7 +416,7 @@ extension MasterEngine {
     public func peerDisplayName(_ machineId: String) -> String { peerName(machineId) }
 
     func peerName(_ machineId: String) -> String {
-        store.state.peerStatuses.values.first { $0.machine?.id == machineId }?.machine?.name ?? machineId
+        store.state.peerMachineName(machineId) ?? machineId
     }
 
     /// Hands a card that never ran to a peer, which launches it there.
@@ -445,6 +475,7 @@ extension MasterEngine {
             info.repoHasCommits = await Self.git(["rev-parse", "--verify", "-q", "HEAD"], in: repoRoot)?.succeeded == true
         }
         info.refusal = refusedHandovers[cardId]
+        if let transcript, !FileManager.default.fileExists(atPath: transcript) { info.transcriptMissing = true }
         if let launch {
             info.launchPrompt = launch.prompt
             info.launchWorktree = launch.worktree
@@ -606,6 +637,9 @@ extension MasterEngine {
         var sessionLink: SessionLink?
         if let sessionId = info.sessionId {
             guard assistant == .claude else { throw MasterPeerError.failed("only Claude conversations move between masters") }
+            if info.transcriptMissing == true {
+                throw MasterPeerError.failed("\(peerName(from)) no longer has this card's conversation")
+            }
             // An empty transcript would replace the conversation with nothing.
             guard info.transcriptSize > 0 else {
                 throw MasterPeerError.notReady("\(peerName(from)) has no transcript for this card yet")

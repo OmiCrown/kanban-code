@@ -63,6 +63,12 @@ public final class MasterEngine {
     /// Hands the vault what a device unlocked for an approval, before the
     /// request resolves.
     public var vaultUnsealed: (@Sendable (String, VaultUnsealed) async -> Void)?
+    /// This machine's AWS SSO sign-in (the Mac's master): mints the SSO
+    /// credentials of an approval the answering device left out, as the
+    /// phone does. Nil where there is no sign-in (a server master).
+    public var ssoCredentials: AwsSso.Source?
+    /// Assumes a role with the SSO credentials, for a profile that names one.
+    public var ssoMint: VaultUnsealer.Mint = VaultUnsealer.liveMint
 
     /// Wakes the channels mirror after a channel write.
     let channelsPoke = AsyncSignal()
@@ -105,6 +111,13 @@ public final class MasterEngine {
         self.mutagen = mutagen
         self.registry = registry
         self.platform = platform
+        // A session only knows its cwd; the card that runs there knows the
+        // branch a deleted worktree comes back on.
+        SessionDirectory.branchHint = { [weak store] dir in
+            await MainActor.run {
+                store?.state.links.values.first { $0.worktreeLink?.path == dir }?.worktreeLink?.branch
+            }
+        }
     }
 
     // MARK: - Launch
@@ -767,27 +780,19 @@ public final class MasterEngine {
         }
 
         // If the session file lives under a different project key (e.g. a cleaned-up worktree),
-        // move it to the current projectPath so `claude --resume` can find it.
+        // it moves to the current projectPath so `claude --resume` can find it.
         // Only applicable to Claude Code sessions (Gemini uses its own path scheme).
-        if assistant == .claude,
-           let sessionLink = card.link.sessionLink,
-           let sessionPath = sessionLink.sessionPath {
+        // The move runs in the resume task, off the main actor: a transcript
+        // of hundreds of MB must not stall the board and its API.
+        let sessionFileToMove: String? = {
+            guard assistant == .claude, let sessionPath = card.link.sessionLink?.sessionPath else { return nil }
             // The session's own profile, so a session of `.claude-Client` is not pulled into `~/.claude`.
             let projectsDir = ClaudeProfile.projectsDirectory(ofTranscript: sessionPath) ?? platform.claudeProjectsDirectory
             let expectedDir = projectsDir + "/" + SessionFileMover.encodeProjectPath(projectPath)
             let expectedPath = expectedDir + "/" + sessionId + ".jsonl"
-            if sessionPath != expectedPath,
-               FileManager.default.fileExists(atPath: sessionPath) {
-                KanbanCodeLog.info("resume", "Moving session file from worktree project key to \(expectedDir)")
-                if let newPath = try? SessionFileMover.moveSession(
-                    sessionId: sessionId, fromPath: sessionPath, toProjectPath: projectPath
-                ) {
-                    var updatedLink = card.link
-                    updatedLink.sessionLink = SessionLink(sessionId: sessionId, sessionPath: newPath)
-                    store.dispatch(.createManualTask(updatedLink))
-                }
-            }
-        }
+            guard sessionPath != expectedPath, FileManager.default.fileExists(atPath: sessionPath) else { return nil }
+            return sessionPath
+        }()
 
         // The terminal of the resumed session mounts as soon as the card
         // resumes, so a card that leaves its machine routes its names
@@ -817,6 +822,25 @@ public final class MasterEngine {
                 resumingCards.remove(cardId)
             }
             do {
+                if let sessionPath = sessionFileToMove {
+                    let projectsDir = ClaudeProfile.projectsDirectory(ofTranscript: sessionPath) ?? platform.claudeProjectsDirectory
+                    let expectedDir = projectsDir + "/" + SessionFileMover.encodeProjectPath(projectPath)
+                    KanbanCodeLog.info("resume", "Moving session file from worktree project key to \(expectedDir)")
+                    let started = Date()
+                    let moved = await Task.detached(priority: .userInitiated) {
+                        Result { try SessionFileMover.moveSession(sessionId: sessionId, fromPath: sessionPath, toProjectPath: projectPath) }
+                    }.value
+                    switch moved {
+                    case .success(let newPath):
+                        KanbanCodeLog.info("resume", "Moved session file to \(newPath) in \(String(format: "%.1f", Date().timeIntervalSince(started)))s")
+                        if var updated = store.state.links[cardId] {
+                            updated.sessionLink = SessionLink(sessionId: sessionId, sessionPath: newPath)
+                            store.dispatch(.createManualTask(updated))
+                        }
+                    case .failure(let error):
+                        KanbanCodeLog.warn("resume", "Could not move session file \(sessionPath): \(error)")
+                    }
+                }
                 let settings = try? await settingsStore.read()
 
                 let shellOverride: String?
@@ -952,24 +976,21 @@ public final class MasterEngine {
                         }
                     }
                 }
-                // A worktree deleted under the card comes back from its
-                // branch; with the branch gone too, the session continues in
-                // the project root, its transcript moved along.
+                // A worktree deleted under the card is added again at the same
+                // path, from its branch or, with the branch gone, as that
+                // branch made from origin's default branch. The transcript
+                // stays under the same project key.
                 if !isRemote, boxdPreparation == nil, let worktree = card.link.worktreeLink,
                    worktree.path == resumePath, !FileManager.default.fileExists(atPath: resumePath) {
+                    progress.start()
+                    progress.report("Adding worktree \((resumePath as NSString).lastPathComponent) again")
                     let outcome = await SessionDirectory.ensureLocal(
                         dir: resumePath, branch: worktree.branch, repoRoot: card.link.projectPath)
-                    if case .projectRoot(let root) = outcome {
-                        progress.report("Worktree \((resumePath as NSString).lastPathComponent) and its branch are gone; continuing in \(root)")
-                        if assistant == .claude,
-                           let sessionPath = store.state.links[cardId]?.sessionLink?.sessionPath,
-                           FileManager.default.fileExists(atPath: sessionPath),
-                           let moved = try? SessionFileMover.moveSession(sessionId: sessionId, fromPath: sessionPath, toProjectPath: root) {
-                            var updated = store.state.links[cardId] ?? card.link
-                            updated.sessionLink = SessionLink(sessionId: sessionId, sessionPath: moved)
-                            store.dispatch(.createManualTask(updated))
-                        }
-                        resumePath = root
+                    guard SessionDirectory.isUsable(outcome) else {
+                        throw SessionDirectoryUnavailable(message: SessionDirectory.missingMessage(resumePath, outcome: outcome))
+                    }
+                    if case .created(let branch, let base) = outcome {
+                        progress.report("Branch \(branch) was gone; made it again from \(base)")
                     }
                 }
                 let commandTemplate = settings?.commandTemplate(for: assistant, remote: isRemote)

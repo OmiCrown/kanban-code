@@ -36,12 +36,17 @@ public struct RemoteCardUpdate: Codable, Sendable, Equatable {
     /// Pins or unpins the card (servers listing `RemoteAPI.Feature.cardActions`).
     /// Pinning an archived card brings it back, as on the Mac.
     public var pinned: Bool?
+    /// PR numbers to take off the card, as the Mac's Unlink does: a PR
+    /// unlinked this way is not linked again by its branch.
+    public var unlinkPRs: [Int]?
 
-    public init(name: String? = nil, column: RemoteColumn? = nil, archived: Bool? = nil, pinned: Bool? = nil) {
+    public init(name: String? = nil, column: RemoteColumn? = nil, archived: Bool? = nil, pinned: Bool? = nil,
+                unlinkPRs: [Int]? = nil) {
         self.name = name
         self.column = column
         self.archived = archived
         self.pinned = pinned
+        self.unlinkPRs = unlinkPRs
     }
 }
 
@@ -80,6 +85,9 @@ public struct RemoteHandoverInfo: Codable, Sendable, Equatable {
     /// Set when the card is coming back: the master it was released to
     /// could not adopt it, for this reason.
     public var refusal: String?
+    /// The card names a transcript the releasing master no longer has,
+    /// such as one Claude Code cleaned up: no try will bring it.
+    public var transcriptMissing: Bool?
 
     public init(cardId: String, sessionId: String?, assistant: String, projectPath: String?, cwd: String?,
                 repoUrl: String?, branch: String?, worktreeName: String?, patch: String?, transcriptSize: Int) {

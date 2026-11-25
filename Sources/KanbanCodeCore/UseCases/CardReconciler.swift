@@ -226,6 +226,17 @@ public enum CardReconciler {
         var liveWorktreePaths: Set<String> = []
         let didScanWorktrees = !snapshot.worktrees.isEmpty
 
+        // Worktrees per repo that no card claims by branch.
+        var unclaimedWorktreeCount: [String: Int] = [:]
+        for (repoRoot, worktrees) in snapshot.worktrees {
+            for worktree in worktrees where !worktree.isBare && worktree.path != repoRoot {
+                guard let baseName = worktree.branch?.replacingOccurrences(of: "refs/heads/", with: ""),
+                      baseName != "main", baseName != "master",
+                      cardIdsByBranch[baseName]?.isEmpty ?? true else { continue }
+                unclaimedWorktreeCount[repoRoot, default: 0] += 1
+            }
+        }
+
         for (repoRoot, worktrees) in snapshot.worktrees {
             for worktree in worktrees {
                 guard !worktree.isBare else { continue }
@@ -241,21 +252,27 @@ public enum CardReconciler {
 
                 let existingCardIds = cardIdsByBranch[baseName] ?? []
                 if existingCardIds.isEmpty {
-                    // Check if a card is currently launching in this repo — associate the worktree
-                    // with it instead of creating an orphan (avoids launch race condition).
+                    // A card launching a new worktree has no session yet to
+                    // say where it runs: the worktree it creates is taken as
+                    // its own instead of left without a card. Only one, and
+                    // only the one its launch named, or the only unclaimed
+                    // one in the repo: a resume or a launch in a repo full of
+                    // other worktrees must not take them all (and their PRs).
+                    let worktreeName = (worktree.path as NSString).lastPathComponent
                     let launchingCard = linksById.first { (_, link) in
-                        link.isLaunching == true
-                            && link.projectPath != nil
-                            && (repoRoot == link.projectPath
-                                || repoRoot.hasPrefix(link.projectPath! + "/")
-                                || link.projectPath!.hasPrefix(repoRoot + "/"))
+                        guard link.isLaunching == true, link.sessionLink == nil, link.worktreeLink == nil,
+                              let projectPath = link.projectPath,
+                              repoRoot == projectPath
+                                || repoRoot.hasPrefix(projectPath + "/")
+                                || projectPath.hasPrefix(repoRoot + "/") else { return false }
+                        let projectName = (projectPath as NSString).lastPathComponent
+                        let namedByLaunch = link.tmuxLink?.sessionName == "\(projectName)-\(worktreeName)"
+                        return namedByLaunch || unclaimedWorktreeCount[repoRoot] == 1
                     }
                     if let (launchingId, _) = launchingCard {
                         KanbanCodeLog.info("reconciler", "Associating worktree branch=\(baseName) with launching card \(launchingId.prefix(12))")
                         var link = linksById[launchingId]!
-                        if link.worktreeLink == nil {
-                            link.worktreeLink = WorktreeLink(path: worktree.path, branch: baseName)
-                        }
+                        link.worktreeLink = WorktreeLink(path: worktree.path, branch: baseName)
                         linksById[launchingId] = link
                         cardIdsByBranch[baseName, default: []].append(launchingId)
                     } else {
@@ -493,10 +510,13 @@ public enum CardReconciler {
 
             // Clear dead worktree links (path no longer exists on disk).
             // A remote card's worktree lives on its machine, so a missing
-            // local path says nothing about it.
+            // local path says nothing about it. A card with a conversation
+            // keeps the worktree its session runs in: the next send or
+            // resume adds it again at the same path from its branch.
             if let wtPath = link.worktreeLink?.path,
                !wtPath.isEmpty,
                !(link.isRemote && link.remote != nil),
+               !(link.sessionLink != nil && !(link.worktreeLink?.branch ?? "").isEmpty),
                !link.manualOverrides.isBranchDiscoveryBlocked,
                didScanWorktrees, // only clear if we actually scanned worktrees
                !liveWorktreePaths.contains(wtPath) {

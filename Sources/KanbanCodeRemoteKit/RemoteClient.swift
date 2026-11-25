@@ -97,6 +97,13 @@ public enum RemoteClientError: Error, Sendable, Equatable, LocalizedError {
         }
     }
 
+    /// The text of a request that got no answer in its time.
+    public static let timedOutText = "The request timed out."
+
+    /// The request got no answer in its time: the server may still be doing
+    /// what it was asked.
+    public var isTimeout: Bool { self == .transport(Self.timedOutText) }
+
     /// Retrying will not help: the token is refused.
     public var isAuthFailure: Bool {
         switch self {
@@ -336,6 +343,14 @@ public struct RemoteClient: Sendable {
                                                                       note: note, noteFollows: noteFollows ? true : nil)))
     }
 
+    /// The AWS credentials from SSO an open vault approval asks for, minted
+    /// by this master from its own sign-in. A master that asks another to
+    /// mint for an approval the phone sent: only the Mac has the sign-in.
+    public func mintAttentionSso(id: String) async throws -> [String: AwsProcessCredentials] {
+        let response: AttentionSsoResponse = try await send(makeRequest("POST", "v1/attention/\(Self.escape(id))/sso"))
+        return response.credentials
+    }
+
     /// The note of a refusal sent with `noteFollows`; nil sends the
     /// refusal on without one.
     /// `typing` sends no note: the owner is writing one, wait longer.
@@ -471,6 +486,8 @@ public struct RemoteClient: Sendable {
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw RemoteClientError.transport(RemoteClientError.timedOutText)
         } catch {
             throw RemoteClientError.transport(error.localizedDescription)
         }
